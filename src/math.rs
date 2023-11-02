@@ -1,3 +1,5 @@
+use core::{marker::PhantomData, ops::Index};
+
 use crate::bls::Fr;
 
 const PRIMITIVE_ROOT_OF_UNITY: u64 = 7;
@@ -26,58 +28,70 @@ pub fn roots_of_unity<const ORDER: usize>() -> [Fr; ORDER] {
     roots
 }
 
-/// # Panics
-///
-/// This function will panic if `N` is not a power of 2.
-pub fn bit_reversal_permutation<const N: usize, T>(elements: &[T; N]) -> Box<[T; N]>
+pub struct BitReversalPermutation<T, S> {
+    elements: S,
+    phantom: PhantomData<T>,
+}
+
+impl<T, S> BitReversalPermutation<T, S>
 where
-    T: Default + Copy,
+    S: AsRef<[T]>,
 {
-    assert!(N.is_power_of_two());
-    let log = N.ilog2() as usize;
-
-    let mut permutation = Box::new([T::default(); N]);
-    for i in 0..N {
-        // TODO: the below code is quite inefficient
-        let binary = format!("{i:b}");
-        let mut reversed: String = binary.chars().rev().collect();
-        while reversed.len() < log {
-            reversed.push('0');
+    /// # Panics
+    ///
+    /// This function will panic if the length of `elements` is not a power of 2.
+    pub fn new(elements: S) -> Self {
+        assert!(elements.as_ref().len().is_power_of_two());
+        Self {
+            elements,
+            phantom: PhantomData::default(),
         }
-        let reversed = usize::from_str_radix(&reversed, 2).unwrap();
-        permutation[i] = elements[reversed];
     }
+}
 
-    permutation
+impl<T, S> Index<usize> for BitReversalPermutation<T, S>
+where
+    S: AsRef<[T]>,
+{
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        let log = self.elements.as_ref().len().ilog2();
+        let index = index.reverse_bits() >> (usize::BITS - log);
+        &self.elements.as_ref()[index]
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Fr;
+    use super::*;
 
     #[test]
     fn bit_reversal_permutation() {
-        const N: usize = 1 << 10;
-        let mut elements: [u16; N] = [0; N];
-        for element in &mut elements {
-            *element = rand::random();
+        const N: usize = 1 << 12;
+        let mut elements: Vec<u16> = Vec::with_capacity(N);
+        for _ in 0..N {
+            elements.push(rand::random());
         }
 
         // since the permutation is an involution, the double application should be equal to the identity function
-        let permuted = super::bit_reversal_permutation(&elements);
-        let identity = super::bit_reversal_permutation(&permuted);
-
+        let permutation = BitReversalPermutation::new(elements.clone());
+        let mut permuted = Vec::with_capacity(N);
         for i in 0..N {
-            assert_eq!(identity[i], elements[i]);
+            permuted.push(permutation[i]);
+        }
+        let double_permutation = BitReversalPermutation::new(permuted);
+        for i in 0..N {
+            assert_eq!(double_permutation[i], elements[i]);
         }
     }
 
     #[test]
     #[should_panic]
     fn bit_reversal_permutation_non_power_of_two() {
-        const N: usize = (1 << 10) - 1;
-        let elements: [u16; N] = [0; N];
-        super::bit_reversal_permutation(&elements);
+        const N: usize = (1 << 12) - 1;
+        let mut elements = vec![0u16; N];
+        BitReversalPermutation::new(&mut elements);
     }
 
     #[test]

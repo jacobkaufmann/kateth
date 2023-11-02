@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     bls::{self, Fr, Scalar, P1, P2},
-    math,
+    math::{self, BitReversalPermutation},
 };
 
 use alloy_primitives::{hex, Bytes, FixedBytes};
@@ -93,10 +93,10 @@ impl<const N: usize> Polynomial<N> {
     /// evaluates the polynomial at `point`.
     pub fn evaluate(&self, point: Fr) -> Fr {
         let roots = math::roots_of_unity::<N>();
-        let roots = math::bit_reversal_permutation(&roots);
+        let roots = BitReversalPermutation::new(roots);
 
         // if `point` is a root of a unity, then we have the evaluation available
-        for i in 0..roots.len() {
+        for i in 0..N {
             if point == roots[i] {
                 return self.0[i];
             }
@@ -125,7 +125,7 @@ impl<const N: usize> Polynomial<N> {
     ) -> (Fr, Proof) {
         assert_eq!(G1, N);
         let roots = math::roots_of_unity::<N>();
-        let roots = math::bit_reversal_permutation(&roots);
+        let roots = BitReversalPermutation::new(roots);
 
         let eval = self.evaluate(point);
 
@@ -158,9 +158,9 @@ impl<const N: usize> Polynomial<N> {
 
         // TODO: with both `into_iter` there were some memory issues. we need to optimize w/ pippenger anyway.
         let mut lincomb = P1::INF;
-        let g1_lagrange = math::bit_reversal_permutation(&setup.as_ref().g1_lagrange);
-        for (lagrange, scalar) in g1_lagrange.iter().zip(quotient_poly.iter()) {
-            lincomb = lincomb + (*lagrange * scalar.clone());
+        let g1_lagrange = BitReversalPermutation::new(setup.as_ref().g1_lagrange.as_slice());
+        for i in 0..N {
+            lincomb = lincomb + (g1_lagrange[i] * quotient_poly[i].clone());
         }
 
         (eval, Proof(lincomb))

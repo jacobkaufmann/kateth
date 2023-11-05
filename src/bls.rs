@@ -1,6 +1,6 @@
 use std::{
     mem::MaybeUninit,
-    ops::{Add, Deref, DerefMut, Div, Mul, Sub},
+    ops::{Add, Div, Mul, Sub},
 };
 
 use blst::{
@@ -66,11 +66,11 @@ impl From<u64> for Scalar {
     }
 }
 
-impl From<Fr> for Scalar {
-    fn from(element: Fr) -> Self {
+impl<T: AsRef<Fr>> From<T> for Scalar {
+    fn from(element: T) -> Self {
         let mut out = MaybeUninit::<blst_scalar>::uninit();
         unsafe {
-            blst_scalar_from_fr(out.as_mut_ptr(), &element.element);
+            blst_scalar_from_fr(out.as_mut_ptr(), &element.as_ref().element);
             Self {
                 element: out.assume_init(),
             }
@@ -78,11 +78,9 @@ impl From<Fr> for Scalar {
     }
 }
 
-impl Deref for Scalar {
-    type Target = blst_scalar;
-
-    fn deref(&self) -> &Self::Target {
-        &self.element
+impl AsRef<Self> for Scalar {
+    fn as_ref(&self) -> &Self {
+        self
     }
 }
 
@@ -126,11 +124,11 @@ impl Fr {
     pub const BITS: usize = 256;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn from_scalar(scalar: Scalar) -> Option<Self> {
+    pub fn from_scalar(scalar: impl AsRef<Scalar>) -> Option<Self> {
         let mut out = MaybeUninit::<blst_fr>::uninit();
         unsafe {
-            blst_scalar_fr_check(&scalar.element).then(|| {
-                blst_fr_from_scalar(out.as_mut_ptr(), &scalar.element);
+            blst_scalar_fr_check(&scalar.as_ref().element).then(|| {
+                blst_fr_from_scalar(out.as_mut_ptr(), &scalar.as_ref().element);
                 Self {
                     element: out.assume_init(),
                 }
@@ -156,11 +154,11 @@ impl Fr {
         out[0]
     }
 
-    pub fn pow(&self, power: Self) -> Self {
+    pub fn pow(&self, power: impl AsRef<Self>) -> Self {
         let power = Scalar::from(power);
         let mut power_be_bytes = [0u8; 32];
         unsafe {
-            blst_bendian_from_scalar(power_be_bytes.as_mut_ptr(), &(*power));
+            blst_bendian_from_scalar(power_be_bytes.as_mut_ptr(), &power.element);
         }
         let mut power = alloy_primitives::U256::from_be_bytes(power_be_bytes);
         let one = alloy_primitives::U256::from(1u64);
@@ -180,6 +178,12 @@ impl Fr {
 
         out = out * tmp;
         out
+    }
+}
+
+impl AsRef<Self> for Fr {
+    fn as_ref(&self) -> &Self {
+        self
     }
 }
 
@@ -255,20 +259,6 @@ impl Div for Fr {
     }
 }
 
-impl Deref for Fr {
-    type Target = blst_fr;
-
-    fn deref(&self) -> &Self::Target {
-        &self.element
-    }
-}
-
-impl DerefMut for Fr {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.element
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct P1 {
     element: blst_p1,
@@ -312,6 +302,12 @@ impl P1 {
                 element: out.assume_init(),
             })
         }
+    }
+}
+
+impl AsRef<Self> for P1 {
+    fn as_ref(&self) -> &Self {
+        self
     }
 }
 
@@ -373,6 +369,12 @@ impl P2 {
                 element: out.assume_init(),
             })
         }
+    }
+}
+
+impl AsRef<Self> for P2 {
+    fn as_ref(&self) -> &Self {
+        self
     }
 }
 

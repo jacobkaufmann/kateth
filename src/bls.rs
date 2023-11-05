@@ -55,7 +55,7 @@ impl Scalar {
 
 impl From<u64> for Scalar {
     fn from(element: u64) -> Self {
-        let element = vec![element, 0, 0, 0];
+        let element = [element, 0, 0, 0];
         let mut out = MaybeUninit::<blst_scalar>::uninit();
         unsafe {
             blst_scalar_from_uint64(out.as_mut_ptr(), element.as_ptr());

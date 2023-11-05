@@ -10,7 +10,7 @@ fn primitive_root_of_unity<const ORDER: usize>() -> Fr {
     let power = Fr::MAX / order;
     let primitive = Fr::from(PRIMITIVE_ROOT_OF_UNITY);
 
-    primitive.pow(&power)
+    primitive.pow(power)
 }
 
 pub fn roots_of_unity<const ORDER: usize>() -> [Fr; ORDER] {
@@ -20,8 +20,8 @@ pub fn roots_of_unity<const ORDER: usize>() -> [Fr; ORDER] {
 
     let primitive = primitive_root_of_unity::<ORDER>();
     let mut current = Fr::ONE;
-    for power in 0..ORDER {
-        roots[power] = current;
+    for root in roots.iter_mut() {
+        *root = current;
         current = current * primitive;
     }
 
@@ -44,7 +44,7 @@ where
         assert!(elements.as_ref().len().is_power_of_two());
         Self {
             elements,
-            phantom: PhantomData::default(),
+            phantom: PhantomData,
         }
     }
 }

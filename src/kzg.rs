@@ -40,10 +40,10 @@ pub struct Setup<const G1: usize, const G2: usize> {
 
 impl<const G1: usize, const G2: usize> Setup<G1, G2> {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, LoadSetupError> {
-        let file = File::open(path).map_err(|err| LoadSetupError::Io(err))?;
+        let file = File::open(path).map_err(LoadSetupError::Io)?;
         let reader = BufReader::new(file);
         let setup: SetupUnchecked =
-            serde_json::from_reader(reader).map_err(|err| LoadSetupError::Serde(err))?;
+            serde_json::from_reader(reader).map_err(LoadSetupError::Serde)?;
 
         if setup.g1_lagrange.len() != G1 {
             return Err(LoadSetupError::InvalidLenG1Lagrange);
@@ -60,7 +60,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
                 )));
             }
             // TODO: skip unnecessary allocation
-            let point = FixedBytes::<48>::from_slice(&point);
+            let point = FixedBytes::<48>::from_slice(point);
             let point = P1::from_be_bytes(point)
                 .map_err(|err| LoadSetupError::Bls(bls::Error::from(err)))?;
             g1_lagrange[i] = point;
@@ -74,7 +74,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
                 )));
             }
             // TODO: skip unnecessary allocation
-            let point = FixedBytes::<96>::from_slice(&point);
+            let point = FixedBytes::<96>::from_slice(point);
             let point = P2::from_be_bytes(point)
                 .map_err(|err| LoadSetupError::Bls(bls::Error::from(err)))?;
             g2_monomial[i] = point;
@@ -174,7 +174,7 @@ impl Commitment {
 
     pub fn from_be_bytes<T: AsRef<[u8; Self::BYTES]>>(bytes: T) -> Result<Self, Error> {
         P1::from_be_bytes(bytes)
-            .and_then(|p1| Ok(Self(p1)))
+            .map(Self)
             .map_err(|err| Error::Bls(bls::Error::from(err)))
     }
 }
@@ -186,7 +186,7 @@ impl Proof {
 
     pub fn from_be_bytes<T: AsRef<[u8; Self::BYTES]>>(bytes: T) -> Result<Self, Error> {
         P1::from_be_bytes(bytes)
-            .and_then(|p1| Ok(Self(p1)))
+            .map(Self)
             .map_err(|err| Error::Bls(bls::Error::from(err)))
     }
 }

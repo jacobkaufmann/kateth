@@ -10,7 +10,7 @@ fn primitive_root_of_unity<const ORDER: usize>() -> Fr {
     let power = Fr::MAX / order;
     let primitive = Fr::from(PRIMITIVE_ROOT_OF_UNITY);
 
-    primitive.pow(power)
+    primitive.pow(&power)
 }
 
 pub fn roots_of_unity<const ORDER: usize>() -> [Fr; ORDER] {

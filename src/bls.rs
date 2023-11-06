@@ -306,7 +306,7 @@ impl P1 {
     pub const BITS: usize = 384;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn from_be_bytes(bytes: impl AsRef<[u8; Self::BYTES]>) -> Result<Self, ECGroupError> {
+    pub fn deserialize(bytes: impl AsRef<[u8; Self::BYTES]>) -> Result<Self, ECGroupError> {
         let mut affine = MaybeUninit::<blst_p1_affine>::uninit();
         let mut out = MaybeUninit::<blst_p1>::uninit();
         unsafe {
@@ -381,7 +381,7 @@ impl P2 {
     pub const BITS: usize = 768;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn from_be_bytes(bytes: impl AsRef<[u8; Self::BYTES]>) -> Result<Self, ECGroupError> {
+    pub fn deserialize(bytes: impl AsRef<[u8; Self::BYTES]>) -> Result<Self, ECGroupError> {
         let mut affine = MaybeUninit::<blst_p2_affine>::uninit();
         let mut out = MaybeUninit::<blst_p2>::uninit();
         unsafe {

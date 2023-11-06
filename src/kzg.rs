@@ -61,8 +61,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             }
             // TODO: skip unnecessary allocation
             let point = FixedBytes::<48>::from_slice(point);
-            let point = P1::from_be_bytes(point)
-                .map_err(|err| LoadSetupError::Bls(bls::Error::from(err)))?;
+            let point =
+                P1::deserialize(point).map_err(|err| LoadSetupError::Bls(bls::Error::from(err)))?;
             g1_lagrange[i] = point;
         }
 
@@ -75,8 +75,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             }
             // TODO: skip unnecessary allocation
             let point = FixedBytes::<96>::from_slice(point);
-            let point = P2::from_be_bytes(point)
-                .map_err(|err| LoadSetupError::Bls(bls::Error::from(err)))?;
+            let point =
+                P2::deserialize(point).map_err(|err| LoadSetupError::Bls(bls::Error::from(err)))?;
             g2_monomial[i] = point;
         }
 
@@ -173,8 +173,8 @@ pub struct Commitment(P1);
 impl Commitment {
     pub const BYTES: usize = P1::BYTES;
 
-    pub fn from_be_bytes<T: AsRef<[u8; Self::BYTES]>>(bytes: T) -> Result<Self, Error> {
-        P1::from_be_bytes(bytes)
+    pub fn deserialize<T: AsRef<[u8; Self::BYTES]>>(bytes: T) -> Result<Self, Error> {
+        P1::deserialize(bytes)
             .map(Self)
             .map_err(|err| Error::Bls(bls::Error::from(err)))
     }
@@ -198,8 +198,8 @@ pub struct Proof(P1);
 impl Proof {
     pub const BYTES: usize = P1::BYTES;
 
-    pub fn from_be_bytes<T: AsRef<[u8; Self::BYTES]>>(bytes: T) -> Result<Self, Error> {
-        P1::from_be_bytes(bytes)
+    pub fn deserialize<T: AsRef<[u8; Self::BYTES]>>(bytes: T) -> Result<Self, Error> {
+        P1::deserialize(bytes)
             .map(Self)
             .map_err(|err| Error::Bls(bls::Error::from(err)))
     }
@@ -351,7 +351,7 @@ mod tests {
                 Ok(input) => {
                     let (proof, eval) = case.output.unwrap();
                     let expected_eval = Fr::from_be_bytes(eval).unwrap();
-                    let expected_proof = P1::from_be_bytes(proof).unwrap();
+                    let expected_proof = P1::deserialize(proof).unwrap();
 
                     let poly = Polynomial(input.blob.elements);
                     let eval = poly.evaluate(input.z);
@@ -410,7 +410,7 @@ mod tests {
             match BlobToCommitmentInput::from_unchecked(case.input) {
                 Ok(input) => {
                     let comm = case.output.unwrap();
-                    let comm = P1::from_be_bytes(comm).unwrap();
+                    let comm = P1::deserialize(comm).unwrap();
                     let expected_comm = Commitment::from(comm);
 
                     let comm = input.blob.commitment(&setup);

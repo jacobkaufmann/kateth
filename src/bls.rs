@@ -51,6 +51,20 @@ pub struct Scalar {
 impl Scalar {
     pub const BITS: usize = 256;
     pub const BYTES: usize = Self::BITS / 8;
+
+    pub fn from_be_slice(bytes: impl AsRef<[u8]>) -> Option<Self> {
+        if bytes.as_ref().len() != Self::BYTES {
+            return None;
+        }
+
+        let mut out = MaybeUninit::<blst_scalar>::uninit();
+        unsafe {
+            blst_scalar_from_bendian(out.as_mut_ptr(), bytes.as_ref().as_ptr());
+            Some(Self {
+                element: out.assume_init(),
+            })
+        }
+    }
 }
 
 impl From<u64> for Scalar {
@@ -144,6 +158,13 @@ impl Fr {
                 element: scalar.assume_init(),
             })
         }
+    }
+
+    pub fn from_be_slice(bytes: impl AsRef<[u8]>) -> Result<Self, FiniteFieldError> {
+        let scalar =
+            Scalar::from_be_slice(bytes.as_ref()).ok_or(FiniteFieldError::InvalidEncoding)?;
+        let element = Self::from_scalar(scalar).ok_or(FiniteFieldError::NotInFiniteField)?;
+        Ok(element)
     }
 
     pub fn as_u64(&self) -> u64 {

@@ -33,9 +33,9 @@ struct SetupUnchecked {
 
 #[derive(Clone, Debug)]
 pub struct Setup<const G1: usize, const G2: usize> {
-    g1_lagrange: Box<[P1; G1]>,
+    pub(crate) g1_lagrange: Box<[P1; G1]>,
     #[allow(dead_code)]
-    g2_monomial: Box<[P2; G2]>,
+    pub(crate) g2_monomial: Box<[P2; G2]>,
 }
 
 impl<const G1: usize, const G2: usize> Setup<G1, G2> {
@@ -87,7 +87,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
     }
 }
 
-pub struct Polynomial<const N: usize>(Box<[Fr; N]>);
+pub struct Polynomial<const N: usize>(pub(crate) Box<[Fr; N]>);
 
 impl<const N: usize> Polynomial<N> {
     /// evaluates the polynomial at `point`.
@@ -156,7 +156,7 @@ impl<const N: usize> Polynomial<N> {
             quotient_poly.push(Scalar::from(quotient));
         }
 
-        // TODO: with both `into_iter` there were some memory issues. we need to optimize w/ pippenger anyway.
+        // TODO: optimize w/ pippenger
         let mut lincomb = P1::INF;
         let g1_lagrange = BitReversalPermutation::new(setup.as_ref().g1_lagrange.as_slice());
         for i in 0..N {
@@ -167,6 +167,7 @@ impl<const N: usize> Polynomial<N> {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Commitment(P1);
 
 impl Commitment {
@@ -179,6 +180,13 @@ impl Commitment {
     }
 }
 
+impl From<P1> for Commitment {
+    fn from(point: P1) -> Self {
+        Self(point)
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Proof(P1);
 
 impl Proof {
@@ -191,9 +199,17 @@ impl Proof {
     }
 }
 
+impl From<P1> for Proof {
+    fn from(point: P1) -> Self {
+        Self(point)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::blob::Blob;
 
     use std::{
         fs::{self, File},
@@ -207,8 +223,6 @@ mod tests {
     use alloy_primitives::{Bytes, FixedBytes};
 
     const FIELD_ELEMENTS_PER_BLOB: usize = 4096;
-    const BYTES_PER_BLOB: usize = FIELD_ELEMENTS_PER_BLOB * Fr::BYTES;
-
     const SETUP_G2_LEN: usize = 65;
 
     #[derive(serde::Deserialize, serde::Serialize)]
@@ -217,47 +231,47 @@ mod tests {
         pub z: Bytes,
     }
 
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct ComputeKzgProofUnchecked {
+        input: ComputeKzgProofInputUnchecked,
+        output: Option<(FixedBytes<{ P1::BYTES }>, FixedBytes<{ Fr::BYTES }>)>,
+    }
+
     struct ComputeKzgProofInput {
-        pub blob: Box<[Fr; FIELD_ELEMENTS_PER_BLOB]>,
+        pub blob: Blob<FIELD_ELEMENTS_PER_BLOB>,
         pub z: Fr,
     }
 
     impl ComputeKzgProofInput {
         pub fn from_unchecked(unchecked: ComputeKzgProofInputUnchecked) -> Result<Self, ()> {
-            if unchecked.blob.len() != BYTES_PER_BLOB {
-                return Err(());
-            }
-
-            let mut blob = Box::new([Fr::default(); FIELD_ELEMENTS_PER_BLOB]);
-            let mut i = 0;
-            for felt in unchecked.blob.chunks_exact(Fr::BYTES) {
-                let bytes = FixedBytes::<{ Fr::BYTES }>::from_slice(felt);
-                match Fr::from_be_bytes(bytes) {
-                    Some(fr) => {
-                        blob[i] = fr;
-                    }
-                    None => return Err(()),
-                }
-
-                i += 1;
-            }
-            assert_eq!(i, FIELD_ELEMENTS_PER_BLOB);
-
-            if unchecked.z.len() != Fr::BYTES {
-                return Err(());
-            }
-            let bytes = FixedBytes::<{ Fr::BYTES }>::from_slice(&unchecked.z);
-            match Fr::from_be_bytes(bytes) {
-                Some(z) => Ok(ComputeKzgProofInput { blob, z }),
-                None => Err(()),
+            let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
+            match Fr::from_be_slice(unchecked.z) {
+                Ok(z) => Ok(ComputeKzgProofInput { blob, z }),
+                Err(_) => Err(()),
             }
         }
     }
 
     #[derive(serde::Deserialize, serde::Serialize)]
-    struct ComputeKzgProofUnchecked {
-        input: ComputeKzgProofInputUnchecked,
-        output: Option<(FixedBytes<{ P1::BYTES }>, FixedBytes<{ Fr::BYTES }>)>,
+    struct BlobToCommitmentInputUnchecked {
+        pub blob: Bytes,
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct BlobToCommitmentUnchecked {
+        input: BlobToCommitmentInputUnchecked,
+        output: Option<FixedBytes<{ P1::BYTES }>>,
+    }
+
+    struct BlobToCommitmentInput {
+        pub blob: Blob<FIELD_ELEMENTS_PER_BLOB>,
+    }
+
+    impl BlobToCommitmentInput {
+        pub fn from_unchecked(unchecked: BlobToCommitmentInputUnchecked) -> Result<Self, ()> {
+            let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
+            Ok(Self { blob })
+        }
     }
 
     fn setup() -> Setup<FIELD_ELEMENTS_PER_BLOB, SETUP_G2_LEN> {
@@ -291,7 +305,7 @@ mod tests {
                     let expected_eval = Fr::from_be_bytes(eval).unwrap();
                     let expected_proof = P1::from_be_bytes(proof).unwrap();
 
-                    let poly = Polynomial(input.blob);
+                    let poly = Polynomial(input.blob.elements);
                     let eval = poly.evaluate(input.z);
                     let (_eval, proof) = poly.prove(input.z, setup.clone());
 
@@ -299,7 +313,42 @@ mod tests {
                     assert_eq!(proof.0, expected_proof);
                 }
                 Err(_) => {
-                    println!("{}", path.display());
+                    assert!(case.output.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn blob_to_commitment() {
+        let dir = format!(
+            "{}/consensus-spec-tests/tests/general/deneb/kzg/blob_to_kzg_commitment/kzg-mainnet",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let dir = PathBuf::from(dir);
+
+        // load trusted setup
+        let setup = setup();
+        let setup = Arc::new(setup);
+
+        for item in fs::read_dir(dir).unwrap() {
+            let item = item.unwrap();
+            let path = item.path().join("data.yaml");
+            let file = File::open(path.clone()).unwrap();
+            let reader = BufReader::new(file);
+            let case: BlobToCommitmentUnchecked = serde_yaml::from_reader(reader).unwrap();
+
+            match BlobToCommitmentInput::from_unchecked(case.input) {
+                Ok(input) => {
+                    let comm = case.output.unwrap();
+                    let comm = P1::from_be_bytes(comm).unwrap();
+                    let expected_comm = Commitment::from(comm);
+
+                    let comm = input.blob.commitment(&setup);
+
+                    assert_eq!(comm, expected_comm);
+                }
+                Err(_) => {
                     assert!(case.output.is_none());
                 }
             }

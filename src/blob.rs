@@ -15,6 +15,8 @@ impl From<FiniteFieldError> for Error {
     }
 }
 
+// TODO: a blob and a polynomial are essentially the same as written. if that holds, then there
+// ought to be a zero-cost conversion between blob and polynomial.
 pub struct Blob<const N: usize> {
     pub(crate) elements: Box<[Fr; N]>,
 }
@@ -34,10 +36,6 @@ impl<const N: usize> Blob<N> {
 
         Ok(Self { elements })
     }
-
-    // TODO: a blob and a polynomial are essentially the same as written. if that holds, then there
-    // ought to be a zero-cost conversion between blob and polynomial.
-    #[allow(dead_code)]
 
     pub fn commitment<const G1: usize, const G2: usize>(
         &self,

@@ -280,22 +280,29 @@ mod tests {
         Setup::load(path).unwrap()
     }
 
+    fn consensus_spec_test_files(dir: impl AsRef<str>) -> impl Iterator<Item = File> {
+        let path = format!(
+            "{}/consensus-spec-tests/tests/general/deneb/kzg/{}/kzg-mainnet",
+            env!("CARGO_MANIFEST_DIR"),
+            dir.as_ref(),
+        );
+        let path = PathBuf::from(path);
+        fs::read_dir(path).unwrap().map(|entry| {
+            let entry = entry.unwrap();
+            let path = entry.path().join("data.yaml");
+            File::open(path).unwrap()
+        })
+    }
+
     #[test]
     fn compute_kzg_proof() {
-        let dir = format!(
-            "{}/consensus-spec-tests/tests/general/deneb/kzg/compute_kzg_proof/kzg-mainnet",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        let dir = PathBuf::from(dir);
-
         // load trusted setup
         let setup = setup();
         let setup = Arc::new(setup);
 
-        for item in fs::read_dir(dir).unwrap() {
-            let item = item.unwrap();
-            let path = item.path().join("data.yaml");
-            let file = File::open(path.clone()).unwrap();
+        let files = consensus_spec_test_files("compute_kzg_proof");
+
+        for file in files {
             let reader = BufReader::new(file);
             let case: ComputeKzgProofUnchecked = serde_yaml::from_reader(reader).unwrap();
 
@@ -321,20 +328,13 @@ mod tests {
 
     #[test]
     fn blob_to_commitment() {
-        let dir = format!(
-            "{}/consensus-spec-tests/tests/general/deneb/kzg/blob_to_kzg_commitment/kzg-mainnet",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        let dir = PathBuf::from(dir);
-
         // load trusted setup
         let setup = setup();
         let setup = Arc::new(setup);
 
-        for item in fs::read_dir(dir).unwrap() {
-            let item = item.unwrap();
-            let path = item.path().join("data.yaml");
-            let file = File::open(path.clone()).unwrap();
+        let files = consensus_spec_test_files("blob_to_kzg_commitment");
+
+        for file in files {
             let reader = BufReader::new(file);
             let case: BlobToCommitmentUnchecked = serde_yaml::from_reader(reader).unwrap();
 

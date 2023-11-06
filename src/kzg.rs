@@ -309,8 +309,8 @@ mod tests {
             if unchecked.commitment.len() != Commitment::BYTES {
                 return Err(());
             }
-            let commitment = FixedBytes::<{Commitment::BYTES}>::from_slice(&unchecked.commitment);
-            let commitment = Commitment::from_be_bytes(commitment).map_err(|_| ())?;
+            let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
+            let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
             Ok(Self { blob, commitment })
         }
     }
@@ -381,8 +381,8 @@ mod tests {
             match ComputeBlobKzgProofInput::from_unchecked(case.input) {
                 Ok(input) => {
                     let proof = case.output.unwrap();
-                    let proof = P1::from_be_bytes(proof).unwrap();
-                    let expected_proof= Proof::from(proof);
+                    let proof = P1::deserialize(proof).unwrap();
+                    let expected_proof = Proof::from(proof);
 
                     let proof = input.blob.proof(input.commitment, setup.clone());
 

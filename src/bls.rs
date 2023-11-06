@@ -6,10 +6,11 @@ use std::{
 use blst::{
     blst_bendian_from_scalar, blst_fp, blst_fr, blst_fr_add, blst_fr_eucl_inverse,
     blst_fr_from_scalar, blst_fr_from_uint64, blst_fr_mul, blst_fr_sub, blst_p1, blst_p1_add,
-    blst_p1_affine, blst_p1_affine_in_g1, blst_p1_deserialize, blst_p1_from_affine, blst_p1_mult,
-    blst_p2, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_deserialize, blst_p2_from_affine,
-    blst_scalar, blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr,
-    blst_scalar_from_uint64, blst_uint64_from_fr, BLST_ERROR, blst_p1_serialize, blst_p2_serialize, blst_p2_compress, blst_p1_compress,
+    blst_p1_affine, blst_p1_affine_in_g1, blst_p1_compress, blst_p1_deserialize,
+    blst_p1_from_affine, blst_p1_mult, blst_p2, blst_p2_affine, blst_p2_affine_in_g2,
+    blst_p2_deserialize, blst_p2_from_affine, blst_scalar, blst_scalar_fr_check,
+    blst_scalar_from_bendian, blst_scalar_from_fr, blst_scalar_from_uint64, blst_uint64_from_fr,
+    BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -329,7 +330,7 @@ impl P1 {
         }
     }
 
-    pub fn compress(&self) -> [u8; Self::BYTES] {
+    pub fn serialize(&self) -> [u8; Self::BYTES] {
         let mut out = [0; Self::BYTES];
         unsafe {
             blst_p1_compress(out.as_mut_ptr(), &self.element);

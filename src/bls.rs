@@ -9,7 +9,7 @@ use blst::{
     blst_p1_affine, blst_p1_affine_in_g1, blst_p1_deserialize, blst_p1_from_affine, blst_p1_mult,
     blst_p2, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_deserialize, blst_p2_from_affine,
     blst_scalar, blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr,
-    blst_scalar_from_uint64, blst_uint64_from_fr, BLST_ERROR,
+    blst_scalar_from_uint64, blst_uint64_from_fr, BLST_ERROR, blst_p1_serialize, blst_p2_serialize, blst_p2_compress, blst_p1_compress,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -64,6 +64,14 @@ impl Scalar {
                 element: out.assume_init(),
             })
         }
+    }
+
+    pub fn to_be_bytes(&self) -> [u8; Self::BYTES] {
+        let mut out = [0; Self::BYTES];
+        unsafe {
+            blst_bendian_from_scalar(out.as_mut_ptr(), &self.element);
+        }
+        out
     }
 }
 
@@ -176,12 +184,8 @@ impl Fr {
     }
 
     pub fn pow(&self, power: impl AsRef<Self>) -> Self {
-        let power = Scalar::from(power);
-        let mut power_be_bytes = [0u8; 32];
-        unsafe {
-            blst_bendian_from_scalar(power_be_bytes.as_mut_ptr(), &power.element);
-        }
-        let mut power = alloy_primitives::U256::from_be_bytes(power_be_bytes);
+        let power = Scalar::from(power).to_be_bytes();
+        let mut power = alloy_primitives::U256::from_be_bytes(power);
         let one = alloy_primitives::U256::from(1u64);
 
         let mut out = *self;
@@ -323,6 +327,14 @@ impl P1 {
                 element: out.assume_init(),
             })
         }
+    }
+
+    pub fn compress(&self) -> [u8; Self::BYTES] {
+        let mut out = [0; Self::BYTES];
+        unsafe {
+            blst_p1_compress(out.as_mut_ptr(), &self.element);
+        }
+        out
     }
 }
 

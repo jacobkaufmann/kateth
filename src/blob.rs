@@ -1,8 +1,11 @@
 use crate::{
     bls::{FiniteFieldError, Fr, Scalar, P1},
-    kzg::{Commitment, Setup},
+    kzg::{Commitment, Setup, Proof, Polynomial},
     math::BitReversalPermutation,
 };
+
+use alloy_primitives::{FixedBytes, U256};
+use sha2::{Digest, Sha256};
 
 pub enum Error {
     InvalidFieldElement,
@@ -52,4 +55,45 @@ impl<const N: usize> Blob<N> {
 
         Commitment::from(lincomb)
     }
+
+    pub fn proof<const G1: usize, const G2: usize>(&self, commitment: Commitment, setup: impl AsRef<Setup<G1, G2>>) -> Proof {
+        let poly = Polynomial(self.elements.clone());
+        let challenge = self.challenge(commitment);
+        let (_, proof) = poly.prove(challenge, setup);
+        proof
+    }
+
+    fn challenge(&self, commitment: Commitment) -> Fr {
+        let domain = b"FSBLOBVERIFY_V1_";
+        let degree = (N as u128).to_be_bytes();
+
+        let comm = commitment.as_ref().compress();
+
+        let mut data = Vec::with_capacity(8 + 16 + Commitment::BYTES + Self::BYTES);
+        data.extend_from_slice(domain);
+        data.extend_from_slice(&degree);
+        for element in self.elements.iter() {
+            let bytes = Scalar::from(element).to_be_bytes();
+            data.extend_from_slice(&bytes);
+        }
+        data.extend_from_slice(&comm);
+
+        hash_to_fr(data)
+    }
+}
+
+fn hash_to_fr(data: impl AsRef<[u8]>) -> Fr {
+    // TODO: `blst_sha256`
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let hash: [u8; Scalar::BYTES] = hasher.finalize().into();
+
+    let modulus = U256::from_be_bytes(Fr::MODULUS.to_be_bytes());
+    let hash = U256::from_be_bytes(hash);
+    let hash = hash.reduce_mod(modulus);
+
+    let hash: [u8; Fr::BYTES] = hash.to_be_bytes();
+    let hash = FixedBytes::from(hash);
+
+    Fr::from_be_bytes(hash).unwrap()
 }

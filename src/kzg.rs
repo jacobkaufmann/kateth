@@ -180,6 +180,12 @@ impl Commitment {
     }
 }
 
+impl AsRef<P1> for Commitment {
+    fn as_ref(&self) -> &P1 {
+        &self.0
+    }
+}
+
 impl From<P1> for Commitment {
     fn from(point: P1) -> Self {
         Self(point)
@@ -196,6 +202,12 @@ impl Proof {
         P1::from_be_bytes(bytes)
             .map(Self)
             .map_err(|err| Error::Bls(bls::Error::from(err)))
+    }
+}
+
+impl AsRef<P1> for Proof {
+    fn as_ref(&self) -> &P1 {
+        &self.0
     }
 }
 
@@ -234,7 +246,7 @@ mod tests {
     #[derive(serde::Deserialize, serde::Serialize)]
     struct ComputeKzgProofUnchecked {
         input: ComputeKzgProofInputUnchecked,
-        output: Option<(FixedBytes<{ P1::BYTES }>, FixedBytes<{ Fr::BYTES }>)>,
+        output: Option<(FixedBytes<{ Proof::BYTES }>, FixedBytes<{ Fr::BYTES }>)>,
     }
 
     struct ComputeKzgProofInput {
@@ -260,7 +272,7 @@ mod tests {
     #[derive(serde::Deserialize, serde::Serialize)]
     struct BlobToCommitmentUnchecked {
         input: BlobToCommitmentInputUnchecked,
-        output: Option<FixedBytes<{ P1::BYTES }>>,
+        output: Option<FixedBytes<{ Commitment::BYTES }>>,
     }
 
     struct BlobToCommitmentInput {
@@ -271,6 +283,35 @@ mod tests {
         pub fn from_unchecked(unchecked: BlobToCommitmentInputUnchecked) -> Result<Self, ()> {
             let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
             Ok(Self { blob })
+        }
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct ComputeBlobKzgProofInputUnchecked {
+        blob: Bytes,
+        commitment: Bytes,
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct ComputeBlobKzgProofUnchecked {
+        input: ComputeBlobKzgProofInputUnchecked,
+        output: Option<FixedBytes<{ Proof::BYTES }>>,
+    }
+
+    struct ComputeBlobKzgProofInput {
+        blob: Blob<FIELD_ELEMENTS_PER_BLOB>,
+        commitment: Commitment,
+    }
+
+    impl ComputeBlobKzgProofInput {
+        pub fn from_unchecked(unchecked: ComputeBlobKzgProofInputUnchecked) -> Result<Self, ()> {
+            let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
+            if unchecked.commitment.len() != Commitment::BYTES {
+                return Err(());
+            }
+            let commitment = FixedBytes::<{Commitment::BYTES}>::from_slice(&unchecked.commitment);
+            let commitment = Commitment::from_be_bytes(commitment).map_err(|_| ())?;
+            Ok(Self { blob, commitment })
         }
     }
 
@@ -318,6 +359,34 @@ mod tests {
 
                     assert_eq!(eval, expected_eval);
                     assert_eq!(proof.0, expected_proof);
+                }
+                Err(_) => {
+                    assert!(case.output.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compute_blob_kzg_proof() {
+        let setup = setup();
+        let setup = Arc::new(setup);
+
+        let files = consensus_spec_test_files("compute_blob_kzg_proof");
+
+        for file in files {
+            let reader = BufReader::new(file);
+            let case: ComputeBlobKzgProofUnchecked = serde_yaml::from_reader(reader).unwrap();
+
+            match ComputeBlobKzgProofInput::from_unchecked(case.input) {
+                Ok(input) => {
+                    let proof = case.output.unwrap();
+                    let proof = P1::from_be_bytes(proof).unwrap();
+                    let expected_proof= Proof::from(proof);
+
+                    let proof = input.blob.proof(input.commitment, setup.clone());
+
+                    assert_eq!(proof, expected_proof);
                 }
                 Err(_) => {
                     assert!(case.output.is_none());

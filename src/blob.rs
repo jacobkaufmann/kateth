@@ -4,9 +4,6 @@ use crate::{
     math::BitReversalPermutation,
 };
 
-use alloy_primitives::{FixedBytes, U256};
-use sha2::{Digest, Sha256};
-
 pub enum Error {
     InvalidFieldElement,
     InvalidLen,
@@ -71,7 +68,7 @@ impl<const N: usize> Blob<N> {
         let domain = b"FSBLOBVERIFY_V1_";
         let degree = (N as u128).to_be_bytes();
 
-        let comm = commitment.as_ref().serialize();
+        let comm = commitment.0.serialize();
 
         let mut data = Vec::with_capacity(8 + 16 + Commitment::BYTES + Self::BYTES);
         data.extend_from_slice(domain);
@@ -82,22 +79,6 @@ impl<const N: usize> Blob<N> {
         }
         data.extend_from_slice(&comm);
 
-        hash_to_fr(data)
+        Fr::hash_to(data)
     }
-}
-
-fn hash_to_fr(data: impl AsRef<[u8]>) -> Fr {
-    // TODO: `blst_sha256`
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let hash: [u8; Scalar::BYTES] = hasher.finalize().into();
-
-    let modulus = U256::from_be_bytes(Fr::MODULUS.to_be_bytes());
-    let hash = U256::from_be_bytes(hash);
-    let hash = hash.reduce_mod(modulus);
-
-    let hash: [u8; Fr::BYTES] = hash.to_be_bytes();
-    let hash = FixedBytes::from(hash);
-
-    Fr::from_be_bytes(hash).unwrap()
 }

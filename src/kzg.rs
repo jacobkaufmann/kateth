@@ -168,7 +168,7 @@ impl<const N: usize> Polynomial<N> {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Commitment(P1);
+pub struct Commitment(pub(crate) P1);
 
 impl Commitment {
     pub const BYTES: usize = P1::BYTES;
@@ -180,12 +180,6 @@ impl Commitment {
     }
 }
 
-impl AsRef<P1> for Commitment {
-    fn as_ref(&self) -> &P1 {
-        &self.0
-    }
-}
-
 impl From<P1> for Commitment {
     fn from(point: P1) -> Self {
         Self(point)
@@ -193,7 +187,7 @@ impl From<P1> for Commitment {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Proof(P1);
+pub struct Proof(pub(crate) P1);
 
 impl Proof {
     pub const BYTES: usize = P1::BYTES;
@@ -202,12 +196,6 @@ impl Proof {
         P1::deserialize(bytes)
             .map(Self)
             .map_err(|err| Error::Bls(bls::Error::from(err)))
-    }
-}
-
-impl AsRef<P1> for Proof {
-    fn as_ref(&self) -> &P1 {
-        &self.0
     }
 }
 

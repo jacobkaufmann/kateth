@@ -3,14 +3,15 @@ use std::{
     ops::{Add, Div, Mul, Sub},
 };
 
+use alloy_primitives::{FixedBytes, U256};
 use blst::{
     blst_bendian_from_scalar, blst_fp, blst_fr, blst_fr_add, blst_fr_eucl_inverse,
     blst_fr_from_scalar, blst_fr_from_uint64, blst_fr_mul, blst_fr_sub, blst_p1, blst_p1_add,
     blst_p1_affine, blst_p1_affine_in_g1, blst_p1_compress, blst_p1_deserialize,
     blst_p1_from_affine, blst_p1_mult, blst_p2, blst_p2_affine, blst_p2_affine_in_g2,
     blst_p2_deserialize, blst_p2_from_affine, blst_scalar, blst_scalar_fr_check,
-    blst_scalar_from_bendian, blst_scalar_from_fr, blst_scalar_from_uint64, blst_uint64_from_fr,
-    BLST_ERROR,
+    blst_scalar_from_bendian, blst_scalar_from_fr, blst_scalar_from_uint64, blst_sha256,
+    blst_uint64_from_fr, BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -204,6 +205,26 @@ impl Fr {
 
         out = out * tmp;
         out
+    }
+
+    pub(crate) fn hash_to(data: impl AsRef<[u8]>) -> Self {
+        let mut hash = [0; Self::BYTES];
+        unsafe {
+            blst_sha256(
+                hash.as_mut_ptr(),
+                data.as_ref().as_ptr(),
+                data.as_ref().len(),
+            );
+        }
+
+        let modulus = U256::from_be_bytes(Fr::MODULUS.to_be_bytes());
+        let hash = U256::from_be_bytes(hash);
+        let hash = hash.reduce_mod(modulus);
+
+        let hash: [u8; Fr::BYTES] = hash.to_be_bytes();
+        let hash = FixedBytes::from(hash);
+
+        Self::from_be_bytes(hash).unwrap()
     }
 }
 

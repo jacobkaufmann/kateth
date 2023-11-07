@@ -1,15 +1,17 @@
 use std::{
     mem::MaybeUninit,
-    ops::{Add, Div, Mul, Sub},
+    ops::{Add, Div, Mul, Neg, Sub},
 };
 
 use blst::{
-    blst_bendian_from_scalar, blst_fp, blst_fr, blst_fr_add, blst_fr_eucl_inverse,
-    blst_fr_from_scalar, blst_fr_from_uint64, blst_fr_mul, blst_fr_sub, blst_p1, blst_p1_add,
-    blst_p1_affine, blst_p1_affine_in_g1, blst_p1_deserialize, blst_p1_from_affine, blst_p1_mult,
-    blst_p2, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_deserialize, blst_p2_from_affine,
-    blst_scalar, blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr,
-    blst_scalar_from_uint64, blst_uint64_from_fr, BLST_ERROR,
+    blst_bendian_from_scalar, blst_final_exp, blst_fp, blst_fp12, blst_fp12_is_one, blst_fp12_mul,
+    blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
+    blst_fr_from_uint64, blst_fr_mul, blst_fr_sub, blst_miller_loop, blst_p1, blst_p1_add,
+    blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_deserialize, blst_p1_from_affine,
+    blst_p1_mult, blst_p1_to_affine, blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2,
+    blst_p2_deserialize, blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_scalar,
+    blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr, blst_scalar_from_uint64,
+    blst_uint64_from_fr, BLS12_381_G2, BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -280,6 +282,20 @@ impl Div for Fr {
     }
 }
 
+impl Neg for Fr {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        let mut out = MaybeUninit::<blst_fr>::uninit();
+        unsafe {
+            blst_fr_cneg(out.as_mut_ptr(), &self.element, true);
+            Self {
+                element: out.assume_init(),
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct P1 {
     element: blst_p1,
@@ -324,6 +340,16 @@ impl P1 {
             })
         }
     }
+
+    pub fn neg_generator() -> Self {
+        let mut out = MaybeUninit::<blst_p1>::uninit();
+        unsafe {
+            blst_p1_from_affine(out.as_mut_ptr(), &BLS12_381_NEG_G1);
+            Self {
+                element: out.assume_init(),
+            }
+        }
+    }
 }
 
 impl AsRef<Self> for P1 {
@@ -360,6 +386,17 @@ impl Mul<Scalar> for P1 {
     }
 }
 
+impl Neg for P1 {
+    type Output = Self;
+
+    fn neg(mut self) -> Self::Output {
+        unsafe {
+            blst_p1_cneg(&mut self.element, true);
+        }
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct P2 {
     element: blst_p2,
@@ -390,6 +427,82 @@ impl P2 {
                 element: out.assume_init(),
             })
         }
+    }
+
+    pub fn generator() -> Self {
+        let mut out = MaybeUninit::<blst_p2>::uninit();
+        unsafe {
+            blst_p2_from_affine(out.as_mut_ptr(), &BLS12_381_G2);
+            Self {
+                element: out.assume_init(),
+            }
+        }
+    }
+
+    pub fn neg_generator() -> Self {
+        let mut out = MaybeUninit::<blst_p2>::uninit();
+        unsafe {
+            blst_p2_from_affine(out.as_mut_ptr(), &BLS12_381_NEG_G2);
+            Self {
+                element: out.assume_init(),
+            }
+        }
+    }
+}
+
+impl Add for P2 {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let mut out = MaybeUninit::<blst_p2>::uninit();
+        unsafe {
+            blst_p2_add(out.as_mut_ptr(), &self.element, &rhs.element);
+            Self {
+                element: out.assume_init(),
+            }
+        }
+    }
+}
+
+impl Mul<Scalar> for P2 {
+    type Output = Self;
+
+    fn mul(self, rhs: Scalar) -> Self::Output {
+        let mut out = MaybeUninit::<blst_p2>::uninit();
+        unsafe {
+            blst_p2_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);
+            Self {
+                element: out.assume_init(),
+            }
+        }
+    }
+}
+
+pub fn verify_pairings((a1, a2): (P1, P2), (b1, b2): (P1, P2)) -> bool {
+    let mut a1_neg_affine = MaybeUninit::<blst_p1_affine>::uninit();
+    let mut a2_affine = MaybeUninit::<blst_p2_affine>::uninit();
+
+    let mut b1_affine = MaybeUninit::<blst_p1_affine>::uninit();
+    let mut b2_affine = MaybeUninit::<blst_p2_affine>::uninit();
+
+    let mut e1 = MaybeUninit::<blst_fp12>::uninit();
+    let mut e2 = MaybeUninit::<blst_fp12>::uninit();
+    let mut prod = MaybeUninit::<blst_fp12>::uninit();
+    let mut exp = MaybeUninit::<blst_fp12>::uninit();
+
+    unsafe {
+        blst_p1_to_affine(a1_neg_affine.as_mut_ptr(), &a1.neg().element);
+        blst_p2_to_affine(a2_affine.as_mut_ptr(), &a2.element);
+
+        blst_p1_to_affine(b1_affine.as_mut_ptr(), &b1.element);
+        blst_p2_to_affine(b2_affine.as_mut_ptr(), &b2.element);
+
+        blst_miller_loop(e1.as_mut_ptr(), a2_affine.as_ptr(), a1_neg_affine.as_ptr());
+        blst_miller_loop(e2.as_mut_ptr(), b2_affine.as_ptr(), b1_affine.as_ptr());
+
+        blst_fp12_mul(prod.as_mut_ptr(), e1.as_ptr(), e2.as_ptr());
+        blst_final_exp(exp.as_mut_ptr(), prod.as_ptr());
+        blst_fp12_is_one(exp.as_ptr())
     }
 }
 

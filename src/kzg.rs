@@ -350,17 +350,8 @@ mod tests {
             let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
             let commitment = Commitment::deserialize(&commitment).map_err(|_| ())?;
 
-            if unchecked.z.len() != Fr::BYTES {
-                return Err(());
-            }
-            let z = FixedBytes::<{ Fr::BYTES }>::from_slice(&unchecked.z);
-            let z = Fr::from_be_bytes(&z).ok_or(())?;
-
-            if unchecked.y.len() != Fr::BYTES {
-                return Err(());
-            }
-            let y = FixedBytes::<{ Fr::BYTES }>::from_slice(&unchecked.y);
-            let y = Fr::from_be_bytes(&y).ok_or(())?;
+            let z = Fr::from_be_slice(unchecked.z).map_err(|_| ())?;
+            let y = Fr::from_be_slice(unchecked.y).map_err(|_| ())?;
 
             if unchecked.proof.len() != Proof::BYTES {
                 return Err(());

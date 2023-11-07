@@ -205,6 +205,24 @@ impl From<P1> for Proof {
     }
 }
 
+pub fn verify<const G1: usize, const G2: usize>(
+    proof: Proof,
+    commitment: Commitment,
+    point: Fr,
+    eval: Fr,
+    setup: impl AsRef<Setup<G1, G2>>,
+) -> bool {
+    let pairing1 = (
+        proof.0,
+        setup.as_ref().g2_monomial[1] + (P2::neg_generator() * Scalar::from(point)),
+    );
+    let pairing2 = (
+        commitment.0 + (P1::neg_generator() * Scalar::from(eval)),
+        P2::generator(),
+    );
+    bls::verify_pairings(pairing1, pairing2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,6 +318,53 @@ mod tests {
             let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
             let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
             Ok(Self { blob, commitment })
+        }
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct VerifyKzgProofUnchecked {
+        input: VerifyKzgProofInputUnchecked,
+        output: Option<bool>,
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct VerifyKzgProofInputUnchecked {
+        pub commitment: Bytes,
+        pub z: Bytes,
+        pub y: Bytes,
+        pub proof: Bytes,
+    }
+
+    struct VerifyKzgProofInput {
+        pub commitment: Commitment,
+        pub z: Fr,
+        pub y: Fr,
+        pub proof: Proof,
+    }
+
+    impl VerifyKzgProofInput {
+        pub fn from_unchecked(unchecked: VerifyKzgProofInputUnchecked) -> Result<Self, ()> {
+            if unchecked.commitment.len() != Commitment::BYTES {
+                return Err(());
+            }
+            let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
+            let commitment = Commitment::deserialize(&commitment).map_err(|_| ())?;
+
+            let z = Fr::from_be_slice(unchecked.z).map_err(|_| ())?;
+            let y = Fr::from_be_slice(unchecked.y).map_err(|_| ())?;
+
+            if unchecked.proof.len() != Proof::BYTES {
+                return Err(());
+            }
+            let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&unchecked.proof);
+            let proof = Proof::deserialize(&proof).map_err(|_| ())?;
+
+            Ok(Self {
+                commitment,
+                z,
+                y,
+                proof,
+            })
         }
     }
 
@@ -404,6 +469,28 @@ mod tests {
                     let comm = input.blob.commitment(&setup);
 
                     assert_eq!(comm, expected_comm);
+                }
+                Err(_) => {
+                    assert!(case.output.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn verify_kzg_proof() {
+        // load trusted setup
+        let setup = setup();
+        let setup = Arc::new(setup);
+
+        for file in consensus_spec_test_files("verify_kzg_proof") {
+            let reader = BufReader::new(file);
+            let case: VerifyKzgProofUnchecked = serde_yaml::from_reader(reader).unwrap();
+
+            match VerifyKzgProofInput::from_unchecked(case.input) {
+                Ok(input) => {
+                    let check = verify(input.proof, input.commitment, input.z, input.y, &setup);
+                    assert_eq!(check, case.output.unwrap());
                 }
                 Err(_) => {
                     assert!(case.output.is_none());

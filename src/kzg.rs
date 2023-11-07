@@ -207,7 +207,7 @@ impl From<P1> for Proof {
 
 pub fn verify<const G1: usize, const G2: usize>(
     proof: Proof,
-    comm: Commitment,
+    commitment: Commitment,
     point: Fr,
     eval: Fr,
     setup: impl AsRef<Setup<G1, G2>>,
@@ -217,7 +217,7 @@ pub fn verify<const G1: usize, const G2: usize>(
         setup.as_ref().g2_monomial[1] + (P2::neg_generator() * Scalar::from(point)),
     );
     let pairing2 = (
-        comm.0 + (P1::neg_generator() * Scalar::from(eval)),
+        commitment.0 + (P1::neg_generator() * Scalar::from(eval)),
         P2::generator(),
     );
     bls::verify_pairings(pairing1, pairing2)

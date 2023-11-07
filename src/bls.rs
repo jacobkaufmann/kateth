@@ -341,6 +341,7 @@ impl P1 {
         }
     }
 
+    // TODO: make available as `const`
     pub fn neg_generator() -> Self {
         let mut out = MaybeUninit::<blst_p1>::uninit();
         unsafe {
@@ -429,6 +430,7 @@ impl P2 {
         }
     }
 
+    // TODO: make available as `const`
     pub fn generator() -> Self {
         let mut out = MaybeUninit::<blst_p2>::uninit();
         unsafe {
@@ -439,6 +441,7 @@ impl P2 {
         }
     }
 
+    // TODO: make available as `const`
     pub fn neg_generator() -> Self {
         let mut out = MaybeUninit::<blst_p2>::uninit();
         unsafe {

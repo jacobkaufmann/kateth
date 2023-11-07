@@ -217,11 +217,11 @@ impl Fr {
             );
         }
 
-        let modulus = U256::from_be_bytes(Fr::MODULUS.to_be_bytes());
+        let modulus = U256::from_be_bytes(Self::MODULUS.to_be_bytes());
         let hash = U256::from_be_bytes(hash);
         let hash = hash.reduce_mod(modulus);
 
-        let hash: [u8; Fr::BYTES] = hash.to_be_bytes();
+        let hash: [u8; Self::BYTES] = hash.to_be_bytes();
         let hash = FixedBytes::from(hash);
 
         Self::from_be_bytes(hash).unwrap()

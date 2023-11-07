@@ -3,15 +3,17 @@ use std::{
     ops::{Add, Div, Mul, Neg, Sub},
 };
 
+use alloy_primitives::{FixedBytes, U256};
 use blst::{
     blst_bendian_from_scalar, blst_final_exp, blst_fp, blst_fp12, blst_fp12_is_one, blst_fp12_mul,
     blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
     blst_fr_from_uint64, blst_fr_mul, blst_fr_sub, blst_miller_loop, blst_p1, blst_p1_add,
-    blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_deserialize, blst_p1_from_affine,
-    blst_p1_mult, blst_p1_to_affine, blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2,
-    blst_p2_deserialize, blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_scalar,
-    blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr, blst_scalar_from_uint64,
-    blst_uint64_from_fr, BLS12_381_G2, BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
+    blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_compress, blst_p1_deserialize,
+    blst_p1_from_affine, blst_p1_mult, blst_p1_to_affine, blst_p2, blst_p2_add, blst_p2_affine,
+    blst_p2_affine_in_g2, blst_p2_deserialize, blst_p2_from_affine, blst_p2_mult,
+    blst_p2_to_affine, blst_scalar, blst_scalar_fr_check, blst_scalar_from_bendian,
+    blst_scalar_from_fr, blst_scalar_from_uint64, blst_sha256, blst_uint64_from_fr, BLS12_381_G2,
+    BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -66,6 +68,14 @@ impl Scalar {
                 element: out.assume_init(),
             })
         }
+    }
+
+    pub fn to_be_bytes(&self) -> [u8; Self::BYTES] {
+        let mut out = [0; Self::BYTES];
+        unsafe {
+            blst_bendian_from_scalar(out.as_mut_ptr(), &self.element);
+        }
+        out
     }
 }
 
@@ -178,13 +188,9 @@ impl Fr {
     }
 
     pub fn pow(&self, power: impl AsRef<Self>) -> Self {
-        let power = Scalar::from(power);
-        let mut power_be_bytes = [0u8; 32];
-        unsafe {
-            blst_bendian_from_scalar(power_be_bytes.as_mut_ptr(), &power.element);
-        }
-        let mut power = alloy_primitives::U256::from_be_bytes(power_be_bytes);
-        let one = alloy_primitives::U256::from(1u64);
+        let power = Scalar::from(power).to_be_bytes();
+        let mut power = U256::from_be_bytes(power);
+        let one = U256::from(1u64);
 
         let mut out = *self;
         let mut tmp = Self::ONE;
@@ -201,6 +207,26 @@ impl Fr {
 
         out = out * tmp;
         out
+    }
+
+    pub(crate) fn hash_to(data: impl AsRef<[u8]>) -> Self {
+        let mut hash = [0; Self::BYTES];
+        unsafe {
+            blst_sha256(
+                hash.as_mut_ptr(),
+                data.as_ref().as_ptr(),
+                data.as_ref().len(),
+            );
+        }
+
+        let modulus = U256::from_be_bytes(Self::MODULUS.to_be_bytes());
+        let hash = U256::from_be_bytes(hash);
+        let hash = hash.reduce_mod(modulus);
+
+        let hash: [u8; Self::BYTES] = hash.to_be_bytes();
+        let hash = FixedBytes::from(hash);
+
+        Self::from_be_bytes(hash).unwrap()
     }
 }
 
@@ -339,6 +365,14 @@ impl P1 {
                 element: out.assume_init(),
             })
         }
+    }
+
+    pub fn serialize(&self) -> [u8; Self::BYTES] {
+        let mut out = [0; Self::BYTES];
+        unsafe {
+            blst_p1_compress(out.as_mut_ptr(), &self.element);
+        }
+        out
     }
 
     // TODO: make available as `const`

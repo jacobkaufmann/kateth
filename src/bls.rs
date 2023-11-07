@@ -187,8 +187,8 @@ impl Fr {
 
     pub fn pow(&self, power: impl AsRef<Self>) -> Self {
         let power = Scalar::from(power).to_be_bytes();
-        let mut power = alloy_primitives::U256::from_be_bytes(power);
-        let one = alloy_primitives::U256::from(1u64);
+        let mut power = U256::from_be_bytes(power);
+        let one = U256::from(1u64);
 
         let mut out = *self;
         let mut tmp = Self::ONE;

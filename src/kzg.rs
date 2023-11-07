@@ -368,6 +368,46 @@ mod tests {
         }
     }
 
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct VerifyBlobKzgProofUnchecked {
+        input: VerifyBlobKzgProofInputUnchecked,
+        output: Option<bool>,
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct VerifyBlobKzgProofInputUnchecked {
+        pub blob: Bytes,
+        pub commitment: Bytes,
+        pub proof: Bytes,
+    }
+
+    struct VerifyBlobKzgProofInput {
+        pub blob: Blob<FIELD_ELEMENTS_PER_BLOB>,
+        pub commitment: Commitment,
+        pub proof: Proof,
+    }
+
+    impl VerifyBlobKzgProofInput {
+        pub fn from_unchecked(unchecked: VerifyBlobKzgProofInputUnchecked) -> Result<Self, ()> {
+            let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
+            if unchecked.commitment.len() != Commitment::BYTES {
+                return Err(());
+            }
+            let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
+            let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
+            if unchecked.proof.len() != Proof::BYTES {
+                return Err(());
+            }
+            let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&unchecked.proof);
+            let proof = Proof::deserialize(proof).map_err(|_| ())?;
+            Ok(Self {
+                blob,
+                commitment,
+                proof,
+            })
+        }
+    }
+
     fn setup() -> Setup<FIELD_ELEMENTS_PER_BLOB, SETUP_G2_LEN> {
         let path = format!("{}/trusted_setup_4096.json", env!("CARGO_MANIFEST_DIR"));
         let path = PathBuf::from(path);
@@ -490,6 +530,28 @@ mod tests {
             match VerifyKzgProofInput::from_unchecked(case.input) {
                 Ok(input) => {
                     let check = verify(input.proof, input.commitment, input.z, input.y, &setup);
+                    assert_eq!(check, case.output.unwrap());
+                }
+                Err(_) => {
+                    assert!(case.output.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn verify_blob_kzg_proof() {
+        // load trusted setup
+        let setup = setup();
+        let setup = Arc::new(setup);
+
+        for file in consensus_spec_test_files("verify_blob_kzg_proof") {
+            let reader = BufReader::new(file);
+            let case: VerifyBlobKzgProofUnchecked = serde_yaml::from_reader(reader).unwrap();
+
+            match VerifyBlobKzgProofInput::from_unchecked(case.input) {
+                Ok(input) => {
+                    let check = input.blob.verify(input.proof, input.commitment, &setup);
                     assert_eq!(check, case.output.unwrap());
                 }
                 Err(_) => {

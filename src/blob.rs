@@ -1,6 +1,6 @@
 use crate::{
     bls::{FiniteFieldError, Fr, Scalar, P1},
-    kzg::{Commitment, Polynomial, Proof, Setup},
+    kzg::{self, Commitment, Polynomial, Proof, Setup},
     math::BitReversalPermutation,
 };
 
@@ -59,12 +59,24 @@ impl<const N: usize> Blob<N> {
         setup: impl AsRef<Setup<G1, G2>>,
     ) -> Proof {
         let poly = Polynomial(self.elements.clone());
-        let challenge = self.challenge(commitment);
+        let challenge = self.challenge(&commitment);
         let (_, proof) = poly.prove(challenge, setup);
         proof
     }
 
-    fn challenge(&self, commitment: Commitment) -> Fr {
+    pub fn verify<const G1: usize, const G2: usize>(
+        &self,
+        proof: Proof,
+        commitment: Commitment,
+        setup: impl AsRef<Setup<G1, G2>>,
+    ) -> bool {
+        let poly = Polynomial(self.elements.clone());
+        let challenge = self.challenge(&commitment);
+        let eval = poly.evaluate(challenge);
+        kzg::verify(proof, commitment, challenge, eval, setup)
+    }
+
+    fn challenge(&self, commitment: &Commitment) -> Fr {
         let domain = b"FSBLOBVERIFY_V1_";
         let degree = (N as u128).to_be_bytes();
 

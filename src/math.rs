@@ -47,6 +47,13 @@ where
             phantom: PhantomData,
         }
     }
+
+    pub(crate) fn iter(&self) -> BitReversalPermutationIter<T> {
+        BitReversalPermutationIter {
+            inner: self.elements.as_ref(),
+            index: 0,
+        }
+    }
 }
 
 impl<T, S> Index<usize> for BitReversalPermutation<T, S>
@@ -56,10 +63,35 @@ where
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
-        let log = self.elements.as_ref().len().ilog2();
-        let index = index.reverse_bits() >> (usize::BITS - log);
+        let index = bit_reversal_permutation_index(index, self.elements.as_ref().len());
         &self.elements.as_ref()[index]
     }
+}
+
+pub struct BitReversalPermutationIter<'a, T> {
+    inner: &'a [T],
+    index: usize,
+}
+
+impl<'a, T> Iterator for BitReversalPermutationIter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index == self.inner.len() {
+            return None;
+        }
+
+        let index = bit_reversal_permutation_index(self.index, self.inner.len());
+        let next = &self.inner[index];
+
+        self.index += 1;
+
+        Some(next)
+    }
+}
+
+fn bit_reversal_permutation_index(index: usize, len: usize) -> usize {
+    index.reverse_bits() >> (usize::BITS - len.ilog2())
 }
 
 #[cfg(test)]

@@ -63,8 +63,7 @@ where
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
-        let log = self.elements.as_ref().len().ilog2();
-        let index = index.reverse_bits() >> (usize::BITS - log);
+        let index = bit_reversal_permutation_index(index, self.elements.as_ref().len());
         &self.elements.as_ref()[index]
     }
 }
@@ -82,14 +81,17 @@ impl<'a, T> Iterator for BitReversalPermutationIter<'a, T> {
             return None;
         }
 
-        let log = self.inner.len().ilog2();
-        let index = self.index.reverse_bits() >> (usize::BITS - log);
+        let index = bit_reversal_permutation_index(self.index, self.inner.len());
         let next = &self.inner[index];
 
         self.index += 1;
 
         Some(next)
     }
+}
+
+fn bit_reversal_permutation_index(index: usize, len: usize) -> usize {
+    index.reverse_bits() >> (usize::BITS - len.ilog2())
 }
 
 #[cfg(test)]

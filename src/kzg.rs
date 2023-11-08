@@ -201,12 +201,6 @@ impl From<P1> for Proof {
     }
 }
 
-impl AsRef<P1> for Proof {
-    fn as_ref(&self) -> &P1 {
-        &self.0
-    }
-}
-
 pub fn verify<const G1: usize, const G2: usize>(
     proof: Proof,
     commitment: Commitment,
@@ -251,9 +245,15 @@ pub fn verify_batch<const G1: usize, const G2: usize>(
         rpowers.push(r.pow(Fr::from(i as u64)));
     }
 
-    let proof_lincomb = P1::lincomb(proofs.as_ref().iter().zip(rpowers.iter().map(Scalar::from)));
+    let proof_lincomb = P1::lincomb(
+        proofs
+            .as_ref()
+            .iter()
+            .map(|p| p.0)
+            .zip(rpowers.iter().map(Scalar::from)),
+    );
     let proof_z_lincomb = P1::lincomb(
-        proofs.as_ref().iter().zip(
+        proofs.as_ref().iter().map(|p| p.0).zip(
             points
                 .as_ref()
                 .iter()

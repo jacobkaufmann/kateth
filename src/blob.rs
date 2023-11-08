@@ -43,12 +43,12 @@ impl<const N: usize> Blob<N> {
     ) -> Commitment {
         assert_eq!(G1, N);
 
-        // TODO: optimize w/ pippenger
-        let mut lincomb = P1::INF;
         let g1_lagrange = BitReversalPermutation::new(setup.as_ref().g1_lagrange.as_slice());
-        for i in 0..N {
-            lincomb = lincomb + (g1_lagrange[i] * Scalar::from(self.elements[i]));
-        }
+        let lincomb = P1::lincomb(
+            g1_lagrange
+                .iter()
+                .zip(self.elements.iter().map(Scalar::from)),
+        );
 
         Commitment::from(lincomb)
     }

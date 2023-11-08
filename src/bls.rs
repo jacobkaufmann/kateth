@@ -375,6 +375,16 @@ impl P1 {
         out
     }
 
+    // TODO: optimize w/ pippenger
+    pub fn lincomb(terms: impl Iterator<Item = (impl AsRef<Self>, impl AsRef<Scalar>)>) -> Self {
+        let mut lincomb = Self::INF;
+        for (point, scalar) in terms {
+            lincomb = lincomb + (*point.as_ref() * scalar.as_ref());
+        }
+
+        lincomb
+    }
+
     // TODO: make available as `const`
     pub fn neg_generator() -> Self {
         let mut out = MaybeUninit::<blst_p1>::uninit();
@@ -407,10 +417,38 @@ impl Add for P1 {
     }
 }
 
+impl Add<&Self> for P1 {
+    type Output = Self;
+
+    fn add(self, rhs: &Self) -> Self::Output {
+        let mut out = MaybeUninit::<blst_p1>::uninit();
+        unsafe {
+            blst_p1_add(out.as_mut_ptr(), &self.element, &rhs.element);
+            Self {
+                element: out.assume_init(),
+            }
+        }
+    }
+}
+
 impl Mul<Scalar> for P1 {
     type Output = Self;
 
     fn mul(self, rhs: Scalar) -> Self::Output {
+        let mut out = MaybeUninit::<blst_p1>::uninit();
+        unsafe {
+            blst_p1_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);
+            Self {
+                element: out.assume_init(),
+            }
+        }
+    }
+}
+
+impl Mul<&Scalar> for P1 {
+    type Output = Self;
+
+    fn mul(self, rhs: &Scalar) -> Self::Output {
         let mut out = MaybeUninit::<blst_p1>::uninit();
         unsafe {
             blst_p1_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);

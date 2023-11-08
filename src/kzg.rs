@@ -156,12 +156,8 @@ impl<const N: usize> Polynomial<N> {
             quotient_poly.push(Scalar::from(quotient));
         }
 
-        // TODO: optimize w/ pippenger
-        let mut lincomb = P1::INF;
         let g1_lagrange = BitReversalPermutation::new(setup.as_ref().g1_lagrange.as_slice());
-        for i in 0..N {
-            lincomb = lincomb + (g1_lagrange[i] * quotient_poly[i].clone());
-        }
+        let lincomb = P1::lincomb(g1_lagrange.iter().zip(quotient_poly));
 
         (eval, Proof(lincomb))
     }
@@ -205,6 +201,12 @@ impl From<P1> for Proof {
     }
 }
 
+impl AsRef<P1> for Proof {
+    fn as_ref(&self) -> &P1 {
+        &self.0
+    }
+}
+
 pub fn verify<const G1: usize, const G2: usize>(
     proof: Proof,
     commitment: Commitment,
@@ -221,6 +223,57 @@ pub fn verify<const G1: usize, const G2: usize>(
         P2::generator(),
     );
     bls::verify_pairings(pairing1, pairing2)
+}
+
+pub fn verify_batch<const G1: usize, const G2: usize>(
+    proofs: impl AsRef<[Proof]>,
+    commitments: impl AsRef<[Commitment]>,
+    points: impl AsRef<[Fr]>,
+    evals: impl AsRef<[Fr]>,
+    setup: impl AsRef<Setup<G1, G2>>,
+) -> bool {
+    assert_eq!(proofs.as_ref().len(), commitments.as_ref().len());
+    assert_eq!(commitments.as_ref().len(), points.as_ref().len());
+    assert_eq!(points.as_ref().len(), evals.as_ref().len());
+
+    let domain = b"RCKZGBATCH___V1_";
+    let degree = (G1 as u128).to_be_bytes();
+    let len = (proofs.as_ref().len() as u128).to_be_bytes();
+
+    let mut data = Vec::with_capacity(16 + 16 + 16);
+    data.extend_from_slice(domain.as_slice());
+    data.extend_from_slice(&degree);
+    data.extend_from_slice(&len);
+
+    let r = Fr::hash_to(data);
+    let mut rpowers = Vec::with_capacity(proofs.as_ref().len());
+    for i in 0..proofs.as_ref().len() {
+        rpowers.push(r.pow(Fr::from(i as u64)));
+    }
+
+    let proof_lincomb = P1::lincomb(proofs.as_ref().iter().zip(rpowers.iter().map(Scalar::from)));
+    let proof_z_lincomb = P1::lincomb(
+        proofs.as_ref().iter().zip(
+            points
+                .as_ref()
+                .iter()
+                .zip(rpowers.iter())
+                .map(|(point, pow)| Scalar::from(*point * *pow)),
+        ),
+    );
+
+    let comm_minus_eval = commitments
+        .as_ref()
+        .iter()
+        .zip(evals.as_ref().iter())
+        .map(|(comm, eval)| comm.0 + (P1::neg_generator() * Scalar::from(eval)));
+    let comm_minus_eval_lincomb =
+        P1::lincomb(comm_minus_eval.zip(rpowers.iter().map(Scalar::from)));
+
+    bls::verify_pairings(
+        (proof_lincomb, setup.as_ref().g2_monomial[1]),
+        (comm_minus_eval_lincomb + proof_z_lincomb, P2::generator()),
+    )
 }
 
 #[cfg(test)]
@@ -408,6 +461,69 @@ mod tests {
         }
     }
 
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct VerifyBlobKzgProofBatchInputUnchecked {
+        blobs: Vec<Bytes>,
+        commitments: Vec<Bytes>,
+        proofs: Vec<Bytes>,
+    }
+
+    #[derive(serde::Deserialize, serde::Serialize)]
+    struct VerifyBlobKzgProofBatchUnchecked {
+        input: VerifyBlobKzgProofBatchInputUnchecked,
+        output: Option<bool>,
+    }
+
+    struct VerifyBlobKzgProofBatchInput {
+        blobs: Vec<Blob<FIELD_ELEMENTS_PER_BLOB>>,
+        commitments: Vec<Commitment>,
+        proofs: Vec<Proof>,
+    }
+
+    impl VerifyBlobKzgProofBatchInput {
+        pub fn from_unchecked(
+            unchecked: VerifyBlobKzgProofBatchInputUnchecked,
+        ) -> Result<Self, ()> {
+            if unchecked.blobs.len() != unchecked.commitments.len()
+                || unchecked.blobs.len() != unchecked.proofs.len()
+            {
+                return Err(());
+            }
+
+            let mut blobs = vec![];
+            for blob in unchecked.blobs {
+                let blob = Blob::from_slice(blob).map_err(|_| ())?;
+                blobs.push(blob);
+            }
+
+            let mut commitments = vec![];
+            for commitment in unchecked.commitments {
+                if commitment.len() != Commitment::BYTES {
+                    return Err(());
+                }
+                let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&commitment);
+                let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
+                commitments.push(commitment);
+            }
+
+            let mut proofs = vec![];
+            for proof in unchecked.proofs {
+                if proof.len() != Proof::BYTES {
+                    return Err(());
+                }
+                let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&proof);
+                let proof = Proof::deserialize(proof).map_err(|_| ())?;
+                proofs.push(proof);
+            }
+
+            Ok(Self {
+                blobs,
+                commitments,
+                proofs,
+            })
+        }
+    }
+
     fn setup() -> Setup<FIELD_ELEMENTS_PER_BLOB, SETUP_G2_LEN> {
         let path = format!("{}/trusted_setup_4096.json", env!("CARGO_MANIFEST_DIR"));
         let path = PathBuf::from(path);
@@ -552,6 +668,33 @@ mod tests {
             match VerifyBlobKzgProofInput::from_unchecked(case.input) {
                 Ok(input) => {
                     let check = input.blob.verify(input.proof, input.commitment, &setup);
+                    assert_eq!(check, case.output.unwrap());
+                }
+                Err(_) => {
+                    assert!(case.output.is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn verify_blob_kzg_proof_batch() {
+        // load trusted setup
+        let setup = setup();
+        let setup = Arc::new(setup);
+
+        for file in consensus_spec_test_files("verify_blob_kzg_proof_batch") {
+            let reader = BufReader::new(file);
+            let case: VerifyBlobKzgProofBatchUnchecked = serde_yaml::from_reader(reader).unwrap();
+
+            match VerifyBlobKzgProofBatchInput::from_unchecked(case.input) {
+                Ok(input) => {
+                    let check = crate::blob::verify_batch(
+                        input.blobs,
+                        input.commitments,
+                        input.proofs,
+                        &setup,
+                    );
                     assert_eq!(check, case.output.unwrap());
                 }
                 Err(_) => {

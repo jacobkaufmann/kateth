@@ -401,7 +401,7 @@ mod tests {
                 return Err(());
             }
             let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
-            let commitment = Commitment::deserialize(&commitment).map_err(|_| ())?;
+            let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
 
             let z = Fr::from_be_slice(unchecked.z).map_err(|_| ())?;
             let y = Fr::from_be_slice(unchecked.y).map_err(|_| ())?;
@@ -410,7 +410,7 @@ mod tests {
                 return Err(());
             }
             let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&unchecked.proof);
-            let proof = Proof::deserialize(&proof).map_err(|_| ())?;
+            let proof = Proof::deserialize(proof).map_err(|_| ())?;
 
             Ok(Self {
                 commitment,

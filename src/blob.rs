@@ -17,6 +17,7 @@ impl From<FiniteFieldError> for Error {
 
 // TODO: a blob and a polynomial are essentially the same as written. if that holds, then there
 // ought to be a zero-cost conversion between blob and polynomial.
+#[derive(Clone)]
 pub struct Blob<const N: usize> {
     pub(crate) elements: Box<[Fr; N]>,
 }
@@ -62,6 +63,18 @@ impl<const N: usize> Blob<N> {
         let challenge = self.challenge(commitment);
         let (_, proof) = poly.prove(challenge, setup);
         proof
+    }
+
+    #[cfg(feature = "rand")]
+    pub fn random(gen: &mut impl rand::Rng) -> Self {
+        let mut elements = Box::new([Fr::default(); N]);
+        for i in 0..N {
+            let mut hash = vec![0; 512];
+            gen.fill_bytes(&mut hash);
+            elements[i] = Fr::hash_to(hash);
+        }
+
+        Self { elements }
     }
 
     pub(crate) fn challenge(&self, commitment: &Commitment) -> Fr {

@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    blob::Blob,
     bls::{self, Fr, Scalar, P1, P2},
     math::{self, BitReversalPermutation},
 };
@@ -34,7 +35,6 @@ struct SetupUnchecked {
 #[derive(Clone, Debug)]
 pub struct Setup<const G1: usize, const G2: usize> {
     pub(crate) g1_lagrange: Box<[P1; G1]>,
-    #[allow(dead_code)]
     pub(crate) g2_monomial: Box<[P2; G2]>,
 }
 
@@ -85,13 +85,138 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             g2_monomial,
         })
     }
+
+    pub fn verify_proof(
+        &self,
+        proof: &Proof,
+        commitment: &Commitment,
+        point: &Fr,
+        eval: &Fr,
+    ) -> bool {
+        let pairing1 = (
+            proof.0,
+            self.g2_monomial[1] + (P2::neg_generator() * Scalar::from(point)),
+        );
+        let pairing2 = (
+            commitment.0 + (P1::neg_generator() * Scalar::from(eval)),
+            P2::generator(),
+        );
+        bls::verify_pairings(pairing1, pairing2)
+    }
+
+    pub fn verify_proof_batch(
+        &self,
+        proofs: impl AsRef<[Proof]>,
+        commitments: impl AsRef<[Commitment]>,
+        points: impl AsRef<[Fr]>,
+        evals: impl AsRef<[Fr]>,
+    ) -> bool {
+        assert_eq!(proofs.as_ref().len(), commitments.as_ref().len());
+        assert_eq!(commitments.as_ref().len(), points.as_ref().len());
+        assert_eq!(points.as_ref().len(), evals.as_ref().len());
+
+        let domain = b"RCKZGBATCH___V1_";
+        let degree = (G1 as u128).to_be_bytes();
+        let len = (proofs.as_ref().len() as u128).to_be_bytes();
+
+        let mut data = Vec::with_capacity(16 + 16 + 16);
+        data.extend_from_slice(domain.as_slice());
+        data.extend_from_slice(&degree);
+        data.extend_from_slice(&len);
+
+        let r = Fr::hash_to(data);
+        let mut rpowers = Vec::with_capacity(proofs.as_ref().len());
+        for i in 0..proofs.as_ref().len() {
+            rpowers.push(r.pow(Fr::from(i as u64)));
+        }
+
+        let proof_lincomb = P1::lincomb(
+            proofs
+                .as_ref()
+                .iter()
+                .map(|p| p.0)
+                .zip(rpowers.iter().map(Scalar::from)),
+        );
+        let proof_z_lincomb = P1::lincomb(
+            proofs.as_ref().iter().map(|p| p.0).zip(
+                points
+                    .as_ref()
+                    .iter()
+                    .zip(rpowers.iter())
+                    .map(|(point, pow)| Scalar::from(*point * *pow)),
+            ),
+        );
+
+        let comm_minus_eval = commitments
+            .as_ref()
+            .iter()
+            .zip(evals.as_ref().iter())
+            .map(|(comm, eval)| comm.0 + (P1::neg_generator() * Scalar::from(eval)));
+        let comm_minus_eval_lincomb =
+            P1::lincomb(comm_minus_eval.zip(rpowers.iter().map(Scalar::from)));
+
+        bls::verify_pairings(
+            (proof_lincomb, self.g2_monomial[1]),
+            (comm_minus_eval_lincomb + proof_z_lincomb, P2::generator()),
+        )
+    }
+
+    pub fn blob_to_commitment(&self, blob: &Blob<G1>) -> Commitment {
+        blob.commitment(self)
+    }
+
+    pub fn blob_proof(&self, blob: &Blob<G1>, commitment: &Commitment) -> Proof {
+        blob.proof(commitment, self)
+    }
+
+    pub fn verify_blob_proof(
+        &self,
+        blob: &Blob<G1>,
+        commitment: &Commitment,
+        proof: &Proof,
+    ) -> bool {
+        let poly = Polynomial(blob.elements.clone());
+        let challenge = blob.challenge(commitment);
+        let eval = poly.evaluate(challenge);
+        self.verify_proof(proof, commitment, &challenge, &eval)
+    }
+
+    pub fn verify_blob_proof_batch(
+        &self,
+        blobs: impl AsRef<[Blob<G1>]>,
+        commitments: impl AsRef<[Commitment]>,
+        proofs: impl AsRef<[Proof]>,
+    ) -> bool {
+        assert_eq!(blobs.as_ref().len(), commitments.as_ref().len());
+        assert_eq!(commitments.as_ref().len(), proofs.as_ref().len());
+
+        let mut challenges = Vec::with_capacity(blobs.as_ref().len());
+        let mut evaluations = Vec::with_capacity(blobs.as_ref().len());
+
+        for i in 0..blobs.as_ref().len() {
+            let poly = Polynomial(blobs.as_ref()[i].elements.clone());
+            let challenge = blobs.as_ref()[i].challenge(&commitments.as_ref()[i]);
+            let eval = poly.evaluate(challenge);
+
+            challenges.push(challenge);
+            evaluations.push(eval);
+        }
+
+        self.verify_proof_batch(proofs, commitments, challenges, evaluations)
+    }
 }
 
-pub struct Polynomial<const N: usize>(pub(crate) Box<[Fr; N]>);
+impl<const G1: usize, const G2: usize> AsRef<Setup<G1, G2>> for Setup<G1, G2> {
+    fn as_ref(&self) -> &Setup<G1, G2> {
+        self
+    }
+}
+
+pub(crate) struct Polynomial<const N: usize>(pub(crate) Box<[Fr; N]>);
 
 impl<const N: usize> Polynomial<N> {
     /// evaluates the polynomial at `point`.
-    pub fn evaluate(&self, point: Fr) -> Fr {
+    pub(crate) fn evaluate(&self, point: Fr) -> Fr {
         let roots = math::roots_of_unity::<N>();
         let roots = BitReversalPermutation::new(roots);
 
@@ -118,7 +243,7 @@ impl<const N: usize> Polynomial<N> {
     }
 
     /// returns a `Proof` for the evaluation of the polynomial at `point`.
-    pub fn prove<const G1: usize, const G2: usize>(
+    pub(crate) fn prove<const G1: usize, const G2: usize>(
         &self,
         point: Fr,
         setup: impl AsRef<Setup<G1, G2>>,
@@ -199,81 +324,6 @@ impl From<P1> for Proof {
     fn from(point: P1) -> Self {
         Self(point)
     }
-}
-
-pub fn verify<const G1: usize, const G2: usize>(
-    proof: Proof,
-    commitment: Commitment,
-    point: Fr,
-    eval: Fr,
-    setup: impl AsRef<Setup<G1, G2>>,
-) -> bool {
-    let pairing1 = (
-        proof.0,
-        setup.as_ref().g2_monomial[1] + (P2::neg_generator() * Scalar::from(point)),
-    );
-    let pairing2 = (
-        commitment.0 + (P1::neg_generator() * Scalar::from(eval)),
-        P2::generator(),
-    );
-    bls::verify_pairings(pairing1, pairing2)
-}
-
-pub fn verify_batch<const G1: usize, const G2: usize>(
-    proofs: impl AsRef<[Proof]>,
-    commitments: impl AsRef<[Commitment]>,
-    points: impl AsRef<[Fr]>,
-    evals: impl AsRef<[Fr]>,
-    setup: impl AsRef<Setup<G1, G2>>,
-) -> bool {
-    assert_eq!(proofs.as_ref().len(), commitments.as_ref().len());
-    assert_eq!(commitments.as_ref().len(), points.as_ref().len());
-    assert_eq!(points.as_ref().len(), evals.as_ref().len());
-
-    let domain = b"RCKZGBATCH___V1_";
-    let degree = (G1 as u128).to_be_bytes();
-    let len = (proofs.as_ref().len() as u128).to_be_bytes();
-
-    let mut data = Vec::with_capacity(16 + 16 + 16);
-    data.extend_from_slice(domain.as_slice());
-    data.extend_from_slice(&degree);
-    data.extend_from_slice(&len);
-
-    let r = Fr::hash_to(data);
-    let mut rpowers = Vec::with_capacity(proofs.as_ref().len());
-    for i in 0..proofs.as_ref().len() {
-        rpowers.push(r.pow(Fr::from(i as u64)));
-    }
-
-    let proof_lincomb = P1::lincomb(
-        proofs
-            .as_ref()
-            .iter()
-            .map(|p| p.0)
-            .zip(rpowers.iter().map(Scalar::from)),
-    );
-    let proof_z_lincomb = P1::lincomb(
-        proofs.as_ref().iter().map(|p| p.0).zip(
-            points
-                .as_ref()
-                .iter()
-                .zip(rpowers.iter())
-                .map(|(point, pow)| Scalar::from(*point * *pow)),
-        ),
-    );
-
-    let comm_minus_eval = commitments
-        .as_ref()
-        .iter()
-        .zip(evals.as_ref().iter())
-        .map(|(comm, eval)| comm.0 + (P1::neg_generator() * Scalar::from(eval)));
-    let comm_minus_eval_lincomb =
-        P1::lincomb(comm_minus_eval.zip(rpowers.iter().map(Scalar::from)));
-
-    bls::verify_pairings(
-        (proof_lincomb, setup.as_ref().g2_monomial[1]),
-        (comm_minus_eval_lincomb + proof_z_lincomb, P2::generator()),
-    )
 }
 
 #[cfg(test)]
@@ -593,7 +643,7 @@ mod tests {
                     let proof = P1::deserialize(proof).unwrap();
                     let expected_proof = Proof::from(proof);
 
-                    let proof = input.blob.proof(input.commitment, setup.clone());
+                    let proof = setup.blob_proof(&input.blob, &input.commitment);
 
                     assert_eq!(proof, expected_proof);
                 }
@@ -645,7 +695,8 @@ mod tests {
 
             match VerifyKzgProofInput::from_unchecked(case.input) {
                 Ok(input) => {
-                    let check = verify(input.proof, input.commitment, input.z, input.y, &setup);
+                    let check =
+                        setup.verify_proof(&input.proof, &input.commitment, &input.z, &input.y);
                     assert_eq!(check, case.output.unwrap());
                 }
                 Err(_) => {
@@ -667,7 +718,8 @@ mod tests {
 
             match VerifyBlobKzgProofInput::from_unchecked(case.input) {
                 Ok(input) => {
-                    let check = input.blob.verify(input.proof, input.commitment, &setup);
+                    let check =
+                        setup.verify_blob_proof(&input.blob, &input.commitment, &input.proof);
                     assert_eq!(check, case.output.unwrap());
                 }
                 Err(_) => {
@@ -689,12 +741,8 @@ mod tests {
 
             match VerifyBlobKzgProofBatchInput::from_unchecked(case.input) {
                 Ok(input) => {
-                    let check = crate::blob::verify_batch(
-                        input.blobs,
-                        input.commitments,
-                        input.proofs,
-                        &setup,
-                    );
+                    let check =
+                        setup.verify_blob_proof_batch(input.blobs, input.commitments, input.proofs);
                     assert_eq!(check, case.output.unwrap());
                 }
                 Err(_) => {

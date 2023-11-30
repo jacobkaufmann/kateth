@@ -1,6 +1,6 @@
 use crate::{
     bls::{FiniteFieldError, Fr, Scalar, P1},
-    kzg::{self, Commitment, Polynomial, Proof, Setup},
+    kzg::{Commitment, Polynomial, Proof, Setup},
     math::BitReversalPermutation,
 };
 
@@ -37,7 +37,7 @@ impl<const N: usize> Blob<N> {
         Ok(Self { elements })
     }
 
-    pub fn commitment<const G1: usize, const G2: usize>(
+    pub(crate) fn commitment<const G1: usize, const G2: usize>(
         &self,
         setup: impl AsRef<Setup<G1, G2>>,
     ) -> Commitment {
@@ -53,27 +53,15 @@ impl<const N: usize> Blob<N> {
         Commitment::from(lincomb)
     }
 
-    pub fn proof<const G1: usize, const G2: usize>(
+    pub(crate) fn proof<const G1: usize, const G2: usize>(
         &self,
-        commitment: Commitment,
+        commitment: &Commitment,
         setup: impl AsRef<Setup<G1, G2>>,
     ) -> Proof {
         let poly = Polynomial(self.elements.clone());
-        let challenge = self.challenge(&commitment);
+        let challenge = self.challenge(commitment);
         let (_, proof) = poly.prove(challenge, setup);
         proof
-    }
-
-    pub fn verify<const G1: usize, const G2: usize>(
-        &self,
-        proof: Proof,
-        commitment: Commitment,
-        setup: impl AsRef<Setup<G1, G2>>,
-    ) -> bool {
-        let poly = Polynomial(self.elements.clone());
-        let challenge = self.challenge(&commitment);
-        let eval = poly.evaluate(challenge);
-        kzg::verify(proof, commitment, challenge, eval, setup)
     }
 
     pub(crate) fn challenge(&self, commitment: &Commitment) -> Fr {
@@ -93,29 +81,4 @@ impl<const N: usize> Blob<N> {
 
         Fr::hash_to(data)
     }
-}
-
-pub fn verify_batch<const N: usize, const G1: usize, const G2: usize>(
-    blobs: impl AsRef<[Blob<N>]>,
-    commitments: impl AsRef<[Commitment]>,
-    proofs: impl AsRef<[Proof]>,
-    setup: impl AsRef<Setup<G1, G2>>,
-) -> bool {
-    assert_eq!(N, G1);
-    assert_eq!(blobs.as_ref().len(), commitments.as_ref().len());
-    assert_eq!(commitments.as_ref().len(), proofs.as_ref().len());
-
-    let mut challenges = Vec::with_capacity(blobs.as_ref().len());
-    let mut evaluations = Vec::with_capacity(blobs.as_ref().len());
-
-    for i in 0..blobs.as_ref().len() {
-        let poly = Polynomial(blobs.as_ref()[i].elements.clone());
-        let challenge = blobs.as_ref()[i].challenge(&commitments.as_ref()[i]);
-        let eval = poly.evaluate(challenge);
-
-        challenges.push(challenge);
-        evaluations.push(eval);
-    }
-
-    kzg::verify_batch(proofs, commitments, challenges, evaluations, setup)
 }

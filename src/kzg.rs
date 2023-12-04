@@ -119,10 +119,10 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let degree = (G1 as u128).to_be_bytes();
         let len = (proofs.as_ref().len() as u128).to_be_bytes();
 
-        let mut data = Vec::with_capacity(16 + 16 + 16);
-        data.extend_from_slice(domain.as_slice());
-        data.extend_from_slice(&degree);
-        data.extend_from_slice(&len);
+        let mut data = [0; 48];
+        data[..16].copy_from_slice(domain.as_slice());
+        data[16..32].copy_from_slice(&degree);
+        data[32..].copy_from_slice(&len);
 
         let r = Fr::hash_to(data);
         let mut rpowers = Vec::with_capacity(proofs.as_ref().len());

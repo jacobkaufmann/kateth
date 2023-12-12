@@ -65,6 +65,18 @@ impl<const N: usize> Blob<N> {
         proof
     }
 
+    #[cfg(feature = "rand")]
+    pub fn random(gen: &mut impl rand::Rng) -> Self {
+        let mut elements = Box::new([Fr::default(); N]);
+        for i in 0..N {
+            let mut hash = vec![0; 512];
+            gen.fill_bytes(&mut hash);
+            elements[i] = Fr::hash_to(hash);
+        }
+
+        Self { elements }
+    }
+
     pub(crate) fn challenge(&self, commitment: &Commitment) -> Fr {
         let domain = b"FSBLOBVERIFY_V1_";
         let degree = (N as u128).to_be_bytes();

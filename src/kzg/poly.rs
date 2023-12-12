@@ -5,6 +5,7 @@ use crate::{
 
 use super::{proof::Proof, setup::Setup};
 
+#[derive(Clone, Debug)]
 pub(crate) struct Polynomial<const N: usize>(pub(crate) Box<[Fr; N]>);
 
 impl<const N: usize> Polynomial<N> {

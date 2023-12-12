@@ -17,7 +17,7 @@ impl From<FiniteFieldError> for Error {
 
 // TODO: a blob and a polynomial are essentially the same as written. if that holds, then there
 // ought to be a zero-cost conversion between blob and polynomial.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Blob<const N: usize> {
     pub(crate) elements: Box<[Fr; N]>,
 }

@@ -47,6 +47,20 @@ impl From<ECGroupError> for Error {
     }
 }
 
+/// A data structure that can be serialized into the compressed format defined by Zcash.
+///
+/// github.com/zkcrypto/pairing/blob/34aa52b0f7bef705917252ea63e5a13fa01af551/src/bls12_381/README.md
+pub trait Compress {
+    fn compress(&self, buf: impl AsMut<[u8]>) -> Result<usize, ()>;
+}
+
+/// A data structure that can be deserialized from the compressed format defined by Zcash.
+///
+/// github.com/zkcrypto/pairing/blob/34aa52b0f7bef705917252ea63e5a13fa01af551/src/bls12_381/README.md
+pub trait Decompress: Sized {
+    fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, ()>;
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Scalar {
     element: blst_scalar,

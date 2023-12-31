@@ -7,7 +7,7 @@ use std::{
 use super::{Commitment, Polynomial, Proof};
 use crate::{
     blob::Blob,
-    bls::{self, ECGroupError, Error as BlsError, Fr, Scalar, P1, P2},
+    bls::{self, ECGroupError, Error as BlsError, Fr, P1, P2},
 };
 
 use alloy_primitives::{hex, Bytes, FixedBytes};
@@ -89,14 +89,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         point: &Fr,
         eval: &Fr,
     ) -> bool {
-        let pairing1 = (
-            proof.0,
-            self.g2_monomial[1] + (P2::neg_generator() * Scalar::from(point)),
-        );
-        let pairing2 = (
-            commitment.0 + (P1::neg_generator() * Scalar::from(eval)),
-            P2::generator(),
-        );
+        let pairing1 = (proof.0, self.g2_monomial[1] + (P2::neg_generator() * point));
+        let pairing2 = (commitment.0 + (P1::neg_generator() * eval), P2::generator());
         bls::verify_pairings(pairing1, pairing2)
     }
 
@@ -126,20 +120,14 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             rpowers.push(r.pow(Fr::from(i as u64)));
         }
 
-        let proof_lincomb = P1::lincomb(
-            proofs
-                .as_ref()
-                .iter()
-                .map(|p| p.0)
-                .zip(rpowers.iter().map(Scalar::from)),
-        );
+        let proof_lincomb = P1::lincomb(proofs.as_ref().iter().map(|p| p.0).zip(rpowers.iter()));
         let proof_z_lincomb = P1::lincomb(
             proofs.as_ref().iter().map(|p| p.0).zip(
                 points
                     .as_ref()
                     .iter()
                     .zip(rpowers.iter())
-                    .map(|(point, pow)| Scalar::from(*point * *pow)),
+                    .map(|(point, pow)| *point * *pow),
             ),
         );
 
@@ -147,9 +135,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             .as_ref()
             .iter()
             .zip(evals.as_ref().iter())
-            .map(|(comm, eval)| comm.0 + (P1::neg_generator() * Scalar::from(eval)));
-        let comm_minus_eval_lincomb =
-            P1::lincomb(comm_minus_eval.zip(rpowers.iter().map(Scalar::from)));
+            .map(|(comm, eval)| comm.0 + (P1::neg_generator() * eval));
+        let comm_minus_eval_lincomb = P1::lincomb(comm_minus_eval.zip(rpowers.iter()));
 
         bls::verify_pairings(
             (proof_lincomb, self.g2_monomial[1]),

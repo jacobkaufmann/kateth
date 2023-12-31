@@ -1,5 +1,5 @@
 use crate::{
-    bls::{Fr, Scalar, P1},
+    bls::{Fr, P1},
     math::{self, BitReversalPermutation},
 };
 
@@ -72,7 +72,7 @@ impl<const N: usize> Polynomial<N> {
                 }
                 quotient
             };
-            quotient_poly.push(Scalar::from(quotient));
+            quotient_poly.push(quotient);
         }
 
         let g1_lagrange = BitReversalPermutation::new(setup.as_ref().g1_lagrange.as_slice());

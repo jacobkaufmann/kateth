@@ -45,11 +45,7 @@ impl<const N: usize> Blob<N> {
         assert_eq!(G1, N);
 
         let g1_lagrange = BitReversalPermutation::new(setup.as_ref().g1_lagrange.as_slice());
-        let lincomb = P1::lincomb(
-            g1_lagrange
-                .iter()
-                .zip(self.elements.iter().map(Scalar::from)),
-        );
+        let lincomb = P1::lincomb(g1_lagrange.iter().zip(self.elements.iter()));
 
         Commitment::from(lincomb)
     }

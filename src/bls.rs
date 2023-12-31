@@ -277,10 +277,10 @@ impl Sub for Fr {
     }
 }
 
-impl Mul for Fr {
+impl Mul<&Self> for Fr {
     type Output = Self;
 
-    fn mul(self, rhs: Self) -> Self::Output {
+    fn mul(self, rhs: &Self) -> Self::Output {
         let mut out = MaybeUninit::<blst_fr>::uninit();
         unsafe {
             blst_fr_mul(out.as_mut_ptr(), &self.element, &rhs.element);
@@ -288,6 +288,15 @@ impl Mul for Fr {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl Mul for Fr {
+    type Output = Self;
+
+    #[allow(clippy::op_ref)]
+    fn mul(self, rhs: Self) -> Self::Output {
+        self * &rhs
     }
 }
 
@@ -376,7 +385,7 @@ impl P1 {
     }
 
     // TODO: optimize w/ pippenger
-    pub fn lincomb(terms: impl Iterator<Item = (impl AsRef<Self>, impl AsRef<Scalar>)>) -> Self {
+    pub fn lincomb(terms: impl Iterator<Item = (impl AsRef<Self>, impl AsRef<Fr>)>) -> Self {
         let mut lincomb = Self::INF;
         for (point, scalar) in terms {
             lincomb = lincomb + (*point.as_ref() * scalar.as_ref());
@@ -431,13 +440,15 @@ impl Add<&Self> for P1 {
     }
 }
 
-impl Mul<Scalar> for P1 {
+impl Mul<&Fr> for P1 {
     type Output = Self;
 
-    fn mul(self, rhs: Scalar) -> Self::Output {
+    fn mul(self, rhs: &Fr) -> Self::Output {
+        let mut scalar = blst_scalar::default();
         let mut out = MaybeUninit::<blst_p1>::uninit();
         unsafe {
-            blst_p1_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);
+            blst_scalar_from_fr(&mut scalar, &rhs.element);
+            blst_p1_mult(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
             Self {
                 element: out.assume_init(),
             }
@@ -445,17 +456,11 @@ impl Mul<Scalar> for P1 {
     }
 }
 
-impl Mul<&Scalar> for P1 {
+impl Mul<Fr> for P1 {
     type Output = Self;
 
-    fn mul(self, rhs: &Scalar) -> Self::Output {
-        let mut out = MaybeUninit::<blst_p1>::uninit();
-        unsafe {
-            blst_p1_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);
-            Self {
-                element: out.assume_init(),
-            }
-        }
+    fn mul(self, rhs: Fr) -> Self::Output {
+        self * &rhs
     }
 }
 
@@ -539,17 +544,27 @@ impl Add for P2 {
     }
 }
 
-impl Mul<Scalar> for P2 {
+impl Mul<&Fr> for P2 {
     type Output = Self;
 
-    fn mul(self, rhs: Scalar) -> Self::Output {
+    fn mul(self, rhs: &Fr) -> Self::Output {
+        let mut scalar = blst_scalar::default();
         let mut out = MaybeUninit::<blst_p2>::uninit();
         unsafe {
-            blst_p2_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);
+            blst_scalar_from_fr(&mut scalar, &rhs.element);
+            blst_p2_mult(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
             Self {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl Mul<Fr> for P2 {
+    type Output = Self;
+
+    fn mul(self, rhs: Fr) -> Self::Output {
+        self * &rhs
     }
 }
 

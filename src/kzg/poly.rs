@@ -37,12 +37,11 @@ impl<'a, const N: usize> Polynomial<'a, N> {
     }
 
     /// returns a `Proof` for the evaluation of the polynomial at `point`.
-    pub(crate) fn prove<const G1: usize, const G2: usize>(
+    pub(crate) fn prove<const G2: usize>(
         &self,
         point: Fr,
-        setup: impl AsRef<Setup<G1, G2>>,
+        setup: impl AsRef<Setup<N, G2>>,
     ) -> (Fr, Proof) {
-        assert_eq!(G1, N);
         let roots = math::roots_of_unity::<N>();
         let roots = BitReversalPermutation::new(roots);
 

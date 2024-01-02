@@ -38,22 +38,20 @@ impl<const N: usize> Blob<N> {
         Ok(Self { elements })
     }
 
-    pub(crate) fn commitment<const G1: usize, const G2: usize>(
+    pub(crate) fn commitment<const G2: usize>(
         &self,
-        setup: impl AsRef<Setup<G1, G2>>,
+        setup: impl AsRef<Setup<N, G2>>,
     ) -> Commitment {
-        assert_eq!(G1, N);
-
         let g1_lagrange = BitReversalPermutation::new(setup.as_ref().g1_lagrange.as_slice());
         let lincomb = P1::lincomb(g1_lagrange.iter().zip(self.elements.iter()));
 
         Commitment::from(lincomb)
     }
 
-    pub(crate) fn proof<const G1: usize, const G2: usize>(
+    pub(crate) fn proof<const G2: usize>(
         &self,
         commitment: &Commitment,
-        setup: impl AsRef<Setup<G1, G2>>,
+        setup: impl AsRef<Setup<N, G2>>,
     ) -> Proof {
         let poly = Polynomial(&self.elements);
         let challenge = self.challenge(commitment);

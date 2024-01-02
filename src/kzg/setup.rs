@@ -8,6 +8,7 @@ use super::{Commitment, Polynomial, Proof};
 use crate::{
     blob::Blob,
     bls::{self, ECGroupError, Error as BlsError, Fr, P1, P2},
+    math,
 };
 
 use alloy_primitives::{hex, Bytes, FixedBytes};
@@ -32,6 +33,7 @@ struct SetupUnchecked {
 pub struct Setup<const G1: usize, const G2: usize> {
     pub(crate) g1_lagrange: Box<[P1; G1]>,
     pub(crate) g2_monomial: Box<[P2; G2]>,
+    pub(crate) roots_of_unity: Box<[Fr; G1]>,
 }
 
 impl<const G1: usize, const G2: usize> Setup<G1, G2> {
@@ -76,9 +78,13 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             g2_monomial[i] = point;
         }
 
+        let roots_of_unity = math::roots_of_unity();
+        let roots_of_unity = Box::new(roots_of_unity);
+
         Ok(Setup {
             g1_lagrange,
             g2_monomial,
+            roots_of_unity,
         })
     }
 
@@ -160,7 +166,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
     ) -> bool {
         let poly = Polynomial(&blob.elements);
         let challenge = blob.challenge(commitment);
-        let eval = poly.evaluate(challenge);
+        let eval = poly.evaluate(challenge, self);
         self.verify_proof(proof, commitment, &challenge, &eval)
     }
 
@@ -179,7 +185,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         for i in 0..blobs.as_ref().len() {
             let poly = Polynomial(&blobs.as_ref()[i].elements);
             let challenge = blobs.as_ref()[i].challenge(&commitments.as_ref()[i]);
-            let eval = poly.evaluate(challenge);
+            let eval = poly.evaluate(challenge, self);
 
             challenges.push(challenge);
             evaluations.push(eval);
@@ -482,7 +488,7 @@ mod tests {
                     let expected_proof = P1::deserialize(proof).unwrap();
 
                     let poly = Polynomial(&input.blob.elements);
-                    let eval = poly.evaluate(input.z);
+                    let eval = poly.evaluate(input.z, setup.clone());
                     let (_eval, proof) = poly.prove(input.z, setup.clone());
 
                     assert_eq!(eval, expected_eval);

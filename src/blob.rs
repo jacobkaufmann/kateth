@@ -55,7 +55,7 @@ impl<const N: usize> Blob<N> {
         commitment: &Commitment,
         setup: impl AsRef<Setup<G1, G2>>,
     ) -> Proof {
-        let poly = Polynomial(self.elements.clone());
+        let poly = Polynomial(&self.elements);
         let challenge = self.challenge(commitment);
         let (_, proof) = poly.prove(challenge, setup);
         proof

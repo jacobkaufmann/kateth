@@ -6,9 +6,9 @@ use crate::{
 use super::{proof::Proof, setup::Setup};
 
 #[derive(Clone, Debug)]
-pub(crate) struct Polynomial<const N: usize>(pub(crate) Box<[Fr; N]>);
+pub(crate) struct Polynomial<'a, const N: usize>(pub(crate) &'a [Fr; N]);
 
-impl<const N: usize> Polynomial<N> {
+impl<'a, const N: usize> Polynomial<'a, N> {
     /// evaluates the polynomial at `point`.
     pub(crate) fn evaluate(&self, point: Fr) -> Fr {
         let roots = math::roots_of_unity::<N>();

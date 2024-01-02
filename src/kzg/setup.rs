@@ -158,7 +158,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         commitment: &Commitment,
         proof: &Proof,
     ) -> bool {
-        let poly = Polynomial(blob.elements.clone());
+        let poly = Polynomial(&blob.elements);
         let challenge = blob.challenge(commitment);
         let eval = poly.evaluate(challenge);
         self.verify_proof(proof, commitment, &challenge, &eval)
@@ -177,7 +177,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let mut evaluations = Vec::with_capacity(blobs.as_ref().len());
 
         for i in 0..blobs.as_ref().len() {
-            let poly = Polynomial(blobs.as_ref()[i].elements.clone());
+            let poly = Polynomial(&blobs.as_ref()[i].elements);
             let challenge = blobs.as_ref()[i].challenge(&commitments.as_ref()[i]);
             let eval = poly.evaluate(challenge);
 
@@ -481,7 +481,7 @@ mod tests {
                     let expected_eval = Fr::from_be_bytes(eval).unwrap();
                     let expected_proof = P1::deserialize(proof).unwrap();
 
-                    let poly = Polynomial(input.blob.elements);
+                    let poly = Polynomial(&input.blob.elements);
                     let eval = poly.evaluate(input.z);
                     let (_eval, proof) = poly.prove(input.z, setup.clone());
 

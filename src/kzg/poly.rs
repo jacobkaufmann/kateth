@@ -1,6 +1,6 @@
 use crate::{
     bls::{Fr, P1},
-    math::{self, BitReversalPermutation},
+    math::BitReversalPermutation,
 };
 
 use super::{proof::Proof, setup::Setup};
@@ -10,9 +10,12 @@ pub(crate) struct Polynomial<'a, const N: usize>(pub(crate) &'a [Fr; N]);
 
 impl<'a, const N: usize> Polynomial<'a, N> {
     /// evaluates the polynomial at `point`.
-    pub(crate) fn evaluate(&self, point: Fr) -> Fr {
-        let roots = math::roots_of_unity::<N>();
-        let roots = BitReversalPermutation::new(roots);
+    pub(crate) fn evaluate<const G2: usize>(
+        &self,
+        point: Fr,
+        setup: impl AsRef<Setup<N, G2>>,
+    ) -> Fr {
+        let roots = BitReversalPermutation::new(setup.as_ref().roots_of_unity.as_slice());
 
         // if `point` is a root of a unity, then we have the evaluation available
         for i in 0..N {
@@ -42,10 +45,9 @@ impl<'a, const N: usize> Polynomial<'a, N> {
         point: Fr,
         setup: impl AsRef<Setup<N, G2>>,
     ) -> (Fr, Proof) {
-        let roots = math::roots_of_unity::<N>();
-        let roots = BitReversalPermutation::new(roots);
+        let roots = BitReversalPermutation::new(setup.as_ref().roots_of_unity.as_slice());
 
-        let eval = self.evaluate(point);
+        let eval = self.evaluate(point, &setup);
 
         // compute the quotient polynomial
         //

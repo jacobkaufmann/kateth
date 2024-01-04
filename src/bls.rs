@@ -1,19 +1,19 @@
 use std::{
     mem::MaybeUninit,
-    ops::{Add, Div, Mul, Neg, Sub},
+    ops::{Add, Div, Mul, Neg, Shl, ShlAssign, Shr, ShrAssign, Sub},
 };
 
 use alloy_primitives::{FixedBytes, U256};
 use blst::{
     blst_bendian_from_scalar, blst_final_exp, blst_fp, blst_fp12, blst_fp12_is_one, blst_fp12_mul,
     blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
-    blst_fr_from_uint64, blst_fr_mul, blst_fr_sub, blst_miller_loop, blst_p1, blst_p1_add,
-    blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_compress, blst_p1_deserialize,
-    blst_p1_from_affine, blst_p1_mult, blst_p1_to_affine, blst_p2, blst_p2_add, blst_p2_affine,
-    blst_p2_affine_in_g2, blst_p2_deserialize, blst_p2_from_affine, blst_p2_mult,
-    blst_p2_to_affine, blst_scalar, blst_scalar_fr_check, blst_scalar_from_bendian,
-    blst_scalar_from_fr, blst_scalar_from_uint64, blst_sha256, blst_uint64_from_fr, BLS12_381_G2,
-    BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
+    blst_fr_from_uint64, blst_fr_lshift, blst_fr_mul, blst_fr_rshift, blst_fr_sub,
+    blst_miller_loop, blst_p1, blst_p1_add, blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg,
+    blst_p1_compress, blst_p1_deserialize, blst_p1_from_affine, blst_p1_mult, blst_p1_to_affine,
+    blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_deserialize,
+    blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_scalar, blst_scalar_fr_check,
+    blst_scalar_from_bendian, blst_scalar_from_fr, blst_scalar_from_uint64, blst_sha256,
+    blst_uint64_from_fr, BLS12_381_G2, BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -328,6 +328,40 @@ impl Neg for Fr {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl ShlAssign<usize> for Fr {
+    fn shl_assign(&mut self, rhs: usize) {
+        unsafe {
+            blst_fr_lshift(&mut self.element, &self.element, rhs);
+        }
+    }
+}
+
+impl Shl<usize> for Fr {
+    type Output = Fr;
+
+    fn shl(mut self, rhs: usize) -> Self::Output {
+        self <<= rhs;
+        self
+    }
+}
+
+impl ShrAssign<usize> for Fr {
+    fn shr_assign(&mut self, rhs: usize) {
+        unsafe {
+            blst_fr_rshift(&mut self.element, &self.element, rhs);
+        }
+    }
+}
+
+impl Shr<usize> for Fr {
+    type Output = Fr;
+
+    fn shr(mut self, rhs: usize) -> Self::Output {
+        self >>= rhs;
+        self
     }
 }
 

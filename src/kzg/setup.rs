@@ -123,17 +123,23 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let r = Fr::hash_to(data);
         let mut rpowers = Vec::with_capacity(proofs.as_ref().len());
         for i in 0..proofs.as_ref().len() {
-            rpowers.push(r.pow(Fr::from(i as u64)));
+            rpowers.push(r.pow(&Fr::from(i as u64)));
         }
 
-        let proof_lincomb = P1::lincomb(proofs.as_ref().iter().map(|p| p.0).zip(rpowers.iter()));
-        let proof_z_lincomb = P1::lincomb(
-            proofs.as_ref().iter().map(|p| p.0).zip(
+        let proof_lincomb = P1::lincomb(
+            proofs
+                .as_ref()
+                .iter()
+                .map(|proof| &proof.0)
+                .zip(rpowers.iter()),
+        );
+        let proof_z_lincomb = P1::lincomb_owned(
+            proofs.as_ref().iter().map(|proof| proof.0).zip(
                 points
                     .as_ref()
                     .iter()
                     .zip(rpowers.iter())
-                    .map(|(point, pow)| *point * *pow),
+                    .map(|(point, pow)| point * pow),
             ),
         );
 
@@ -142,7 +148,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             .iter()
             .zip(evals.as_ref().iter())
             .map(|(comm, eval)| comm.0 + (P1::neg_generator() * eval));
-        let comm_minus_eval_lincomb = P1::lincomb(comm_minus_eval.zip(rpowers.iter()));
+        let comm_minus_eval_lincomb = P1::lincomb_owned(comm_minus_eval.zip(rpowers));
 
         bls::verify_pairings(
             (proof_lincomb, self.g2_monomial[1]),
@@ -192,12 +198,6 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         }
 
         self.verify_proof_batch(proofs, commitments, challenges, evaluations)
-    }
-}
-
-impl<const G1: usize, const G2: usize> AsRef<Setup<G1, G2>> for Setup<G1, G2> {
-    fn as_ref(&self) -> &Setup<G1, G2> {
-        self
     }
 }
 
@@ -488,8 +488,8 @@ mod tests {
                     let expected_proof = P1::deserialize(proof).unwrap();
 
                     let poly = Polynomial(&input.blob.elements);
-                    let eval = poly.evaluate(input.z, setup.clone());
-                    let (_eval, proof) = poly.prove(input.z, setup.clone());
+                    let eval = poly.evaluate(input.z, &setup);
+                    let (_eval, proof) = poly.prove(input.z, &setup);
 
                     assert_eq!(eval, expected_eval);
                     assert_eq!(proof.0, expected_proof);

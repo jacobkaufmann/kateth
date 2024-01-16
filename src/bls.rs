@@ -92,11 +92,11 @@ impl From<u64> for Scalar {
     }
 }
 
-impl<T: AsRef<Fr>> From<T> for Scalar {
-    fn from(element: T) -> Self {
+impl From<&Fr> for Scalar {
+    fn from(element: &Fr) -> Self {
         let mut out = MaybeUninit::<blst_scalar>::uninit();
         unsafe {
-            blst_scalar_from_fr(out.as_mut_ptr(), &element.as_ref().element);
+            blst_scalar_from_fr(out.as_mut_ptr(), &element.element);
             Self {
                 element: out.assume_init(),
             }
@@ -104,9 +104,9 @@ impl<T: AsRef<Fr>> From<T> for Scalar {
     }
 }
 
-impl AsRef<Self> for Scalar {
-    fn as_ref(&self) -> &Self {
-        self
+impl AsRef<blst_scalar> for Scalar {
+    fn as_ref(&self) -> &blst_scalar {
+        &self.element
     }
 }
 
@@ -150,11 +150,11 @@ impl Fr {
     pub const BITS: usize = 256;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn from_scalar(scalar: impl AsRef<Scalar>) -> Option<Self> {
+    pub fn from_scalar(scalar: &Scalar) -> Option<Self> {
         let mut out = MaybeUninit::<blst_fr>::uninit();
         unsafe {
-            blst_scalar_fr_check(&scalar.as_ref().element).then(|| {
-                blst_fr_from_scalar(out.as_mut_ptr(), &scalar.as_ref().element);
+            blst_scalar_fr_check(&scalar.element).then(|| {
+                blst_fr_from_scalar(out.as_mut_ptr(), &scalar.element);
                 Self {
                     element: out.assume_init(),
                 }
@@ -166,7 +166,7 @@ impl Fr {
         let mut scalar = MaybeUninit::<blst_scalar>::uninit();
         unsafe {
             blst_scalar_from_bendian(scalar.as_mut_ptr(), bytes.as_ref().as_ptr());
-            Self::from_scalar(Scalar {
+            Self::from_scalar(&Scalar {
                 element: scalar.assume_init(),
             })
         }
@@ -175,7 +175,7 @@ impl Fr {
     pub fn from_be_slice(bytes: impl AsRef<[u8]>) -> Result<Self, FiniteFieldError> {
         let scalar =
             Scalar::from_be_slice(bytes.as_ref()).ok_or(FiniteFieldError::InvalidEncoding)?;
-        let element = Self::from_scalar(scalar).ok_or(FiniteFieldError::NotInFiniteField)?;
+        let element = Self::from_scalar(&scalar).ok_or(FiniteFieldError::NotInFiniteField)?;
         Ok(element)
     }
 
@@ -187,7 +187,7 @@ impl Fr {
         out[0]
     }
 
-    pub fn pow(&self, power: impl AsRef<Self>) -> Self {
+    pub fn pow(&self, power: &Self) -> Self {
         let power = Scalar::from(power).to_be_bytes();
         let mut power = U256::from_be_bytes(power);
         let one = U256::from(1u64);
@@ -230,9 +230,9 @@ impl Fr {
     }
 }
 
-impl AsRef<Self> for Fr {
-    fn as_ref(&self) -> &Self {
-        self
+impl AsRef<blst_fr> for Fr {
+    fn as_ref(&self) -> &blst_fr {
+        &self.element
     }
 }
 
@@ -277,17 +277,26 @@ impl Sub for Fr {
     }
 }
 
-impl Mul<&Self> for Fr {
-    type Output = Self;
+impl Mul<&Fr> for &Fr {
+    type Output = Fr;
 
-    fn mul(self, rhs: &Self) -> Self::Output {
+    fn mul(self, rhs: &Fr) -> Self::Output {
         let mut out = MaybeUninit::<blst_fr>::uninit();
         unsafe {
             blst_fr_mul(out.as_mut_ptr(), &self.element, &rhs.element);
-            Self {
+            Fr {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl Mul<&Self> for Fr {
+    type Output = Self;
+
+    #[allow(clippy::op_ref)]
+    fn mul(self, rhs: &Self) -> Self::Output {
+        &self * rhs
     }
 }
 
@@ -419,10 +428,21 @@ impl P1 {
     }
 
     // TODO: optimize w/ pippenger
-    pub fn lincomb(terms: impl Iterator<Item = (impl AsRef<Self>, impl AsRef<Fr>)>) -> Self {
+    pub fn lincomb<'a>(terms: impl Iterator<Item = (&'a Self, &'a Fr)>) -> Self {
         let mut lincomb = Self::INF;
         for (point, scalar) in terms {
-            lincomb = lincomb + (*point.as_ref() * scalar.as_ref());
+            lincomb = lincomb + (point * scalar);
+        }
+
+        lincomb
+    }
+
+    // TODO: optimize w/ pippenger
+    // TODO: unify with `P1::lincomb`
+    pub fn lincomb_owned(terms: impl Iterator<Item = (Self, Fr)>) -> Self {
+        let mut lincomb = Self::INF;
+        for (point, scalar) in terms {
+            lincomb = lincomb + (point * scalar);
         }
 
         lincomb
@@ -440,9 +460,9 @@ impl P1 {
     }
 }
 
-impl AsRef<Self> for P1 {
-    fn as_ref(&self) -> &Self {
-        self
+impl AsRef<blst_p1> for P1 {
+    fn as_ref(&self) -> &blst_p1 {
+        &self.element
     }
 }
 
@@ -474,8 +494,8 @@ impl Add<&Self> for P1 {
     }
 }
 
-impl Mul<&Fr> for P1 {
-    type Output = Self;
+impl Mul<&Fr> for &P1 {
+    type Output = P1;
 
     fn mul(self, rhs: &Fr) -> Self::Output {
         let mut scalar = blst_scalar::default();
@@ -483,10 +503,19 @@ impl Mul<&Fr> for P1 {
         unsafe {
             blst_scalar_from_fr(&mut scalar, &rhs.element);
             blst_p1_mult(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
-            Self {
+            P1 {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl Mul<&Fr> for P1 {
+    type Output = Self;
+
+    #[allow(clippy::op_ref)]
+    fn mul(self, rhs: &Fr) -> Self::Output {
+        &self * rhs
     }
 }
 
@@ -578,8 +607,8 @@ impl Add for P2 {
     }
 }
 
-impl Mul<&Fr> for P2 {
-    type Output = Self;
+impl Mul<&Fr> for &P2 {
+    type Output = P2;
 
     fn mul(self, rhs: &Fr) -> Self::Output {
         let mut scalar = blst_scalar::default();
@@ -587,10 +616,19 @@ impl Mul<&Fr> for P2 {
         unsafe {
             blst_scalar_from_fr(&mut scalar, &rhs.element);
             blst_p2_mult(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
-            Self {
+            P2 {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl Mul<&Fr> for P2 {
+    type Output = Self;
+
+    #[allow(clippy::op_ref)]
+    fn mul(self, rhs: &Fr) -> Self::Output {
+        &self * rhs
     }
 }
 
@@ -630,9 +668,9 @@ pub fn verify_pairings((a1, a2): (P1, P2), (b1, b2): (P1, P2)) -> bool {
     }
 }
 
-impl AsRef<Self> for P2 {
-    fn as_ref(&self) -> &Self {
-        self
+impl AsRef<blst_p2> for P2 {
+    fn as_ref(&self) -> &blst_p2 {
+        &self.element
     }
 }
 

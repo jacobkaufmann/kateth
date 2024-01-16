@@ -10,12 +10,8 @@ pub(crate) struct Polynomial<'a, const N: usize>(pub(crate) &'a [Fr; N]);
 
 impl<'a, const N: usize> Polynomial<'a, N> {
     /// evaluates the polynomial at `point`.
-    pub(crate) fn evaluate<const G2: usize>(
-        &self,
-        point: Fr,
-        setup: impl AsRef<Setup<N, G2>>,
-    ) -> Fr {
-        let roots = BitReversalPermutation::new(setup.as_ref().roots_of_unity.as_slice());
+    pub(crate) fn evaluate<const G2: usize>(&self, point: Fr, setup: &Setup<N, G2>) -> Fr {
+        let roots = BitReversalPermutation::new(setup.roots_of_unity.as_slice());
 
         // if `point` is a root of a unity, then we have the evaluation available
         for i in 0..N {
@@ -35,19 +31,15 @@ impl<'a, const N: usize> Polynomial<'a, N> {
         }
 
         // barycentric evaluation scalar multiplication
-        let term = (point.pow(Fr::from(N as u64)) - Fr::ONE) / Fr::from(N as u64);
+        let term = (point.pow(&Fr::from(N as u64)) - Fr::ONE) / Fr::from(N as u64);
         eval * term
     }
 
     /// returns a `Proof` for the evaluation of the polynomial at `point`.
-    pub(crate) fn prove<const G2: usize>(
-        &self,
-        point: Fr,
-        setup: impl AsRef<Setup<N, G2>>,
-    ) -> (Fr, Proof) {
-        let roots = BitReversalPermutation::new(setup.as_ref().roots_of_unity.as_slice());
+    pub(crate) fn prove<const G2: usize>(&self, point: Fr, setup: &Setup<N, G2>) -> (Fr, Proof) {
+        let roots = BitReversalPermutation::new(setup.roots_of_unity.as_slice());
 
-        let eval = self.evaluate(point, &setup);
+        let eval = self.evaluate(point, setup);
 
         // compute the quotient polynomial
         //
@@ -76,8 +68,8 @@ impl<'a, const N: usize> Polynomial<'a, N> {
             quotient_poly.push(quotient);
         }
 
-        let g1_lagrange = BitReversalPermutation::new(setup.as_ref().g1_lagrange.as_slice());
-        let lincomb = P1::lincomb(g1_lagrange.iter().zip(quotient_poly));
+        let g1_lagrange = BitReversalPermutation::new(setup.g1_lagrange.as_slice());
+        let lincomb = P1::lincomb(g1_lagrange.iter().zip(quotient_poly.iter()));
 
         (eval, Proof(lincomb))
     }

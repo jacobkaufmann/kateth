@@ -10,7 +10,7 @@ fn primitive_root_of_unity<const ORDER: usize>() -> Fr {
     let power = Fr::MAX / order;
     let primitive = Fr::from(PRIMITIVE_ROOT_OF_UNITY);
 
-    primitive.pow(power)
+    primitive.pow(&power)
 }
 
 pub fn roots_of_unity<const ORDER: usize>() -> [Fr; ORDER] {
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn primitive_root_of_unity() {
         let primitive = super::primitive_root_of_unity::<4096>();
-        let primitive_inv = primitive.pow(Fr::from(4095));
+        let primitive_inv = primitive.pow(&Fr::from(4095));
         assert_eq!(primitive * primitive_inv, Fr::ONE);
     }
 }

@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - name: LFS
+      run: git lfs pull
     - name: build
       run: cargo build --all --all-targets --all-features --verbose
     - name: test
@@ -23,10 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-      with:
-        submodules: recursive
-    - name: LFS
-      run: git lfs pull
     - name: format
       run: cargo fmt --all --check
     - name: clippy

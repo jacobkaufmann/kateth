@@ -111,12 +111,12 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         assert_eq!(commitments.as_ref().len(), points.as_ref().len());
         assert_eq!(points.as_ref().len(), evals.as_ref().len());
 
-        let domain = b"RCKZGBATCH___V1_";
+        const DOMAIN: &'static [u8; 16] = b"RCKZGBATCH___V1_";
         let degree = (G1 as u128).to_be_bytes();
         let len = (proofs.as_ref().len() as u128).to_be_bytes();
 
         let mut data = [0; 48];
-        data[..16].copy_from_slice(domain.as_slice());
+        data[..16].copy_from_slice(DOMAIN.as_slice());
         data[16..32].copy_from_slice(&degree);
         data[32..].copy_from_slice(&len);
 

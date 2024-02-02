@@ -67,13 +67,13 @@ impl<const N: usize> Blob<N> {
     }
 
     pub(crate) fn challenge(&self, commitment: &Commitment) -> Fr {
-        let domain = b"FSBLOBVERIFY_V1_";
+        const DOMAIN: &'static [u8; 16] = b"FSBLOBVERIFY_V1_";
         let degree = (N as u128).to_be_bytes();
 
         let comm = commitment.0.serialize();
 
         let mut data = Vec::with_capacity(8 + 16 + Commitment::BYTES + Self::BYTES);
-        data.extend_from_slice(domain);
+        data.extend_from_slice(DOMAIN);
         data.extend_from_slice(&degree);
         for element in self.elements.iter() {
             let bytes = Scalar::from(element).to_be_bytes();

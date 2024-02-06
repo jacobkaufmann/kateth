@@ -221,7 +221,9 @@ impl Fr {
             );
             blst_scalar_from_bendian(scalar.as_mut_ptr(), hash.as_ptr());
             blst_fr_from_scalar(out.as_mut_ptr(), scalar.as_ptr());
-            Self { element: out.assume_init() }
+            Self {
+                element: out.assume_init(),
+            }
         }
     }
 }

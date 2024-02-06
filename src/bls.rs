@@ -3,7 +3,7 @@ use std::{
     ops::{Add, Div, Mul, Neg, Shl, ShlAssign, Shr, ShrAssign, Sub},
 };
 
-use alloy_primitives::{FixedBytes, U256};
+use alloy_primitives::U256;
 use blst::{
     blst_bendian_from_scalar, blst_final_exp, blst_fp, blst_fp12, blst_fp12_is_one, blst_fp12_mul,
     blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
@@ -210,6 +210,8 @@ impl Fr {
     }
 
     pub(crate) fn hash_to(data: impl AsRef<[u8]>) -> Self {
+        let mut out = MaybeUninit::<blst_fr>::uninit();
+        let mut scalar = MaybeUninit::<blst_scalar>::uninit();
         let mut hash = [0; Self::BYTES];
         unsafe {
             blst_sha256(
@@ -217,16 +219,12 @@ impl Fr {
                 data.as_ref().as_ptr(),
                 data.as_ref().len(),
             );
+            blst_scalar_from_bendian(scalar.as_mut_ptr(), hash.as_ptr());
+            blst_fr_from_scalar(out.as_mut_ptr(), scalar.as_ptr());
+            Self {
+                element: out.assume_init(),
+            }
         }
-
-        let modulus = U256::from_be_bytes(Self::MODULUS.to_be_bytes());
-        let hash = U256::from_be_bytes(hash);
-        let hash = hash.reduce_mod(modulus);
-
-        let hash: [u8; Self::BYTES] = hash.to_be_bytes();
-        let hash = FixedBytes::from(hash);
-
-        Self::from_be_bytes(hash).unwrap()
     }
 }
 

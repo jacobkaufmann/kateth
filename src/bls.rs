@@ -188,17 +188,15 @@ impl Fr {
     }
 
     pub fn pow(&self, power: &Self) -> Self {
-        let power = Scalar::from(power).to_be_bytes();
-        let mut power = U256::from_be_bytes(power);
-        let one = U256::from(1u64);
+        let mut power = *power;
 
         let mut out = *self;
         let mut tmp = Self::ONE;
-        while power > one {
+        while power != Self::ONE && power != Self::ZERO {
             // remaining power odd
-            if power.bit(0) {
+            if power.is_odd() {
                 tmp = out * tmp;
-                power -= one;
+                power = power - Self::ONE;
             }
 
             out = out * out;
@@ -225,6 +223,16 @@ impl Fr {
                 element: out.assume_init(),
             }
         }
+    }
+
+    fn is_odd(&self) -> bool {
+        let mut scalar = blst_scalar::default();
+        let mut bendian = [0; Self::BYTES];
+        unsafe {
+            blst_scalar_from_fr(&mut scalar, &self.element);
+            blst_bendian_from_scalar(bendian.as_mut_ptr(), &scalar);
+        }
+        bendian[Self::BYTES - 1] & 0b00000001 == 1
     }
 }
 

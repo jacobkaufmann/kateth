@@ -1,5 +1,5 @@
 use crate::{
-    bls::{FiniteFieldError, Fr, Scalar, P1},
+    bls::{FiniteFieldError, Fr, P1},
     kzg::{Commitment, Polynomial, Proof, Setup},
     math::BitReversalPermutation,
 };
@@ -67,7 +67,7 @@ impl<const N: usize> Blob<N> {
     }
 
     pub(crate) fn challenge(&self, commitment: &Commitment) -> Fr {
-        const DOMAIN: &'static [u8; 16] = b"FSBLOBVERIFY_V1_";
+        const DOMAIN: &[u8; 16] = b"FSBLOBVERIFY_V1_";
         let degree = (N as u128).to_be_bytes();
 
         let comm = commitment.0.serialize();
@@ -76,7 +76,7 @@ impl<const N: usize> Blob<N> {
         data.extend_from_slice(DOMAIN);
         data.extend_from_slice(&degree);
         for element in self.elements.iter() {
-            let bytes = Scalar::from(element).to_be_bytes();
+            let bytes = element.to_be_bytes();
             data.extend_from_slice(&bytes);
         }
         data.extend_from_slice(&comm);

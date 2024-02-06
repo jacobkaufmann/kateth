@@ -3,7 +3,6 @@ use std::{
     ops::{Add, Div, Mul, Neg, Shl, ShlAssign, Shr, ShrAssign, Sub},
 };
 
-use alloy_primitives::U256;
 use blst::{
     blst_bendian_from_scalar, blst_final_exp, blst_fp, blst_fp12, blst_fp12_is_one, blst_fp12_mul,
     blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
@@ -12,8 +11,8 @@ use blst::{
     blst_p1_compress, blst_p1_deserialize, blst_p1_from_affine, blst_p1_mult, blst_p1_to_affine,
     blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_deserialize,
     blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_scalar, blst_scalar_fr_check,
-    blst_scalar_from_bendian, blst_scalar_from_fr, blst_scalar_from_uint64, blst_sha256,
-    blst_uint64_from_fr, BLS12_381_G2, BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
+    blst_scalar_from_bendian, blst_scalar_from_fr, blst_sha256, blst_uint64_from_fr, BLS12_381_G2,
+    BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -47,69 +46,6 @@ impl From<ECGroupError> for Error {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Scalar {
-    element: blst_scalar,
-}
-
-impl Scalar {
-    pub const BITS: usize = 256;
-    pub const BYTES: usize = Self::BITS / 8;
-
-    pub fn from_be_slice(bytes: impl AsRef<[u8]>) -> Option<Self> {
-        if bytes.as_ref().len() != Self::BYTES {
-            return None;
-        }
-
-        let mut out = MaybeUninit::<blst_scalar>::uninit();
-        unsafe {
-            blst_scalar_from_bendian(out.as_mut_ptr(), bytes.as_ref().as_ptr());
-            Some(Self {
-                element: out.assume_init(),
-            })
-        }
-    }
-
-    pub fn to_be_bytes(&self) -> [u8; Self::BYTES] {
-        let mut out = [0; Self::BYTES];
-        unsafe {
-            blst_bendian_from_scalar(out.as_mut_ptr(), &self.element);
-        }
-        out
-    }
-}
-
-impl From<u64> for Scalar {
-    fn from(element: u64) -> Self {
-        let element = [element, 0, 0, 0];
-        let mut out = MaybeUninit::<blst_scalar>::uninit();
-        unsafe {
-            blst_scalar_from_uint64(out.as_mut_ptr(), element.as_ptr());
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl From<&Fr> for Scalar {
-    fn from(element: &Fr) -> Self {
-        let mut out = MaybeUninit::<blst_scalar>::uninit();
-        unsafe {
-            blst_scalar_from_fr(out.as_mut_ptr(), &element.element);
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl AsRef<blst_scalar> for Scalar {
-    fn as_ref(&self) -> &blst_scalar {
-        &self.element
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Fr {
     element: blst_fr,
@@ -129,14 +65,6 @@ impl Fr {
             ],
         },
     };
-    pub const MODULUS: Scalar = Scalar {
-        element: blst_scalar {
-            b: [
-                1, 0, 0, 0, 255, 255, 255, 255, 254, 91, 254, 255, 2, 164, 189, 83, 5, 216, 161, 9,
-                8, 216, 57, 51, 72, 125, 157, 41, 83, 167, 237, 115,
-            ],
-        },
-    };
     pub const MAX: Self = Self {
         element: blst_fr {
             l: [
@@ -150,11 +78,11 @@ impl Fr {
     pub const BITS: usize = 256;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn from_scalar(scalar: &Scalar) -> Option<Self> {
+    pub(crate) fn from_blst_scalar(scalar: blst_scalar) -> Option<Self> {
         let mut out = MaybeUninit::<blst_fr>::uninit();
         unsafe {
-            blst_scalar_fr_check(&scalar.element).then(|| {
-                blst_fr_from_scalar(out.as_mut_ptr(), &scalar.element);
+            blst_scalar_fr_check(&scalar).then(|| {
+                blst_fr_from_scalar(out.as_mut_ptr(), &scalar);
                 Self {
                     element: out.assume_init(),
                 }
@@ -166,17 +94,29 @@ impl Fr {
         let mut scalar = MaybeUninit::<blst_scalar>::uninit();
         unsafe {
             blst_scalar_from_bendian(scalar.as_mut_ptr(), bytes.as_ref().as_ptr());
-            Self::from_scalar(&Scalar {
-                element: scalar.assume_init(),
-            })
+            Self::from_blst_scalar(scalar.assume_init())
         }
     }
 
     pub fn from_be_slice(bytes: impl AsRef<[u8]>) -> Result<Self, FiniteFieldError> {
-        let scalar =
-            Scalar::from_be_slice(bytes.as_ref()).ok_or(FiniteFieldError::InvalidEncoding)?;
-        let element = Self::from_scalar(&scalar).ok_or(FiniteFieldError::NotInFiniteField)?;
-        Ok(element)
+        if bytes.as_ref().len() != Self::BYTES {
+            return Err(FiniteFieldError::InvalidEncoding);
+        }
+        let mut scalar = MaybeUninit::<blst_scalar>::uninit();
+        unsafe {
+            blst_scalar_from_bendian(scalar.as_mut_ptr(), bytes.as_ref().as_ptr());
+            Self::from_blst_scalar(scalar.assume_init()).ok_or(FiniteFieldError::NotInFiniteField)
+        }
+    }
+
+    pub fn to_be_bytes(self) -> [u8; Self::BYTES] {
+        let mut bytes = [0; Self::BYTES];
+        let mut scalar = MaybeUninit::<blst_scalar>::uninit();
+        unsafe {
+            blst_scalar_from_fr(scalar.as_mut_ptr(), &self.element);
+            blst_bendian_from_scalar(bytes.as_mut_ptr(), scalar.as_ptr());
+        }
+        bytes
     }
 
     pub fn as_u64(&self) -> u64 {

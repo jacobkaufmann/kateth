@@ -1,18 +1,17 @@
 use std::{
     mem::MaybeUninit,
-    ops::{Add, Div, Mul, Neg, Sub},
+    ops::{Add, Div, Mul, Neg, Shl, ShlAssign, Shr, ShrAssign, Sub},
 };
 
-use alloy_primitives::{FixedBytes, U256};
 use blst::{
     blst_bendian_from_scalar, blst_final_exp, blst_fp, blst_fp12, blst_fp12_is_one, blst_fp12_mul,
     blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
-    blst_fr_from_uint64, blst_fr_mul, blst_fr_sub, blst_miller_loop, blst_p1, blst_p1_add,
-    blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_compress, blst_p1_deserialize,
-    blst_p1_from_affine, blst_p1_mult, blst_p1_to_affine, blst_p2, blst_p2_add, blst_p2_affine,
-    blst_p2_affine_in_g2, blst_p2_deserialize, blst_p2_from_affine, blst_p2_mult,
-    blst_p2_to_affine, blst_scalar, blst_scalar_fr_check, blst_scalar_from_bendian,
-    blst_scalar_from_fr, blst_scalar_from_uint64, blst_sha256, blst_uint64_from_fr, BLS12_381_G2,
+    blst_fr_from_uint64, blst_fr_lshift, blst_fr_mul, blst_fr_rshift, blst_fr_sub,
+    blst_miller_loop, blst_p1, blst_p1_add, blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg,
+    blst_p1_compress, blst_p1_deserialize, blst_p1_from_affine, blst_p1_mult, blst_p1_to_affine,
+    blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_deserialize,
+    blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_scalar, blst_scalar_fr_check,
+    blst_scalar_from_bendian, blst_scalar_from_fr, blst_sha256, blst_uint64_from_fr, BLS12_381_G2,
     BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
 };
 
@@ -61,69 +60,6 @@ pub trait Decompress: Sized {
     fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, ()>;
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Scalar {
-    element: blst_scalar,
-}
-
-impl Scalar {
-    pub const BITS: usize = 256;
-    pub const BYTES: usize = Self::BITS / 8;
-
-    pub fn from_be_slice(bytes: impl AsRef<[u8]>) -> Option<Self> {
-        if bytes.as_ref().len() != Self::BYTES {
-            return None;
-        }
-
-        let mut out = MaybeUninit::<blst_scalar>::uninit();
-        unsafe {
-            blst_scalar_from_bendian(out.as_mut_ptr(), bytes.as_ref().as_ptr());
-            Some(Self {
-                element: out.assume_init(),
-            })
-        }
-    }
-
-    pub fn to_be_bytes(&self) -> [u8; Self::BYTES] {
-        let mut out = [0; Self::BYTES];
-        unsafe {
-            blst_bendian_from_scalar(out.as_mut_ptr(), &self.element);
-        }
-        out
-    }
-}
-
-impl From<u64> for Scalar {
-    fn from(element: u64) -> Self {
-        let element = [element, 0, 0, 0];
-        let mut out = MaybeUninit::<blst_scalar>::uninit();
-        unsafe {
-            blst_scalar_from_uint64(out.as_mut_ptr(), element.as_ptr());
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl<T: AsRef<Fr>> From<T> for Scalar {
-    fn from(element: T) -> Self {
-        let mut out = MaybeUninit::<blst_scalar>::uninit();
-        unsafe {
-            blst_scalar_from_fr(out.as_mut_ptr(), &element.as_ref().element);
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl AsRef<Self> for Scalar {
-    fn as_ref(&self) -> &Self {
-        self
-    }
-}
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Fr {
     element: blst_fr,
@@ -143,14 +79,6 @@ impl Fr {
             ],
         },
     };
-    pub const MODULUS: Scalar = Scalar {
-        element: blst_scalar {
-            b: [
-                1, 0, 0, 0, 255, 255, 255, 255, 254, 91, 254, 255, 2, 164, 189, 83, 5, 216, 161, 9,
-                8, 216, 57, 51, 72, 125, 157, 41, 83, 167, 237, 115,
-            ],
-        },
-    };
     pub const MAX: Self = Self {
         element: blst_fr {
             l: [
@@ -164,11 +92,11 @@ impl Fr {
     pub const BITS: usize = 256;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn from_scalar(scalar: impl AsRef<Scalar>) -> Option<Self> {
+    pub(crate) fn from_blst_scalar(scalar: blst_scalar) -> Option<Self> {
         let mut out = MaybeUninit::<blst_fr>::uninit();
         unsafe {
-            blst_scalar_fr_check(&scalar.as_ref().element).then(|| {
-                blst_fr_from_scalar(out.as_mut_ptr(), &scalar.as_ref().element);
+            blst_scalar_fr_check(&scalar).then(|| {
+                blst_fr_from_scalar(out.as_mut_ptr(), &scalar);
                 Self {
                     element: out.assume_init(),
                 }
@@ -180,17 +108,29 @@ impl Fr {
         let mut scalar = MaybeUninit::<blst_scalar>::uninit();
         unsafe {
             blst_scalar_from_bendian(scalar.as_mut_ptr(), bytes.as_ref().as_ptr());
-            Self::from_scalar(Scalar {
-                element: scalar.assume_init(),
-            })
+            Self::from_blst_scalar(scalar.assume_init())
         }
     }
 
     pub fn from_be_slice(bytes: impl AsRef<[u8]>) -> Result<Self, FiniteFieldError> {
-        let scalar =
-            Scalar::from_be_slice(bytes.as_ref()).ok_or(FiniteFieldError::InvalidEncoding)?;
-        let element = Self::from_scalar(scalar).ok_or(FiniteFieldError::NotInFiniteField)?;
-        Ok(element)
+        if bytes.as_ref().len() != Self::BYTES {
+            return Err(FiniteFieldError::InvalidEncoding);
+        }
+        let mut scalar = MaybeUninit::<blst_scalar>::uninit();
+        unsafe {
+            blst_scalar_from_bendian(scalar.as_mut_ptr(), bytes.as_ref().as_ptr());
+            Self::from_blst_scalar(scalar.assume_init()).ok_or(FiniteFieldError::NotInFiniteField)
+        }
+    }
+
+    pub fn to_be_bytes(self) -> [u8; Self::BYTES] {
+        let mut bytes = [0; Self::BYTES];
+        let mut scalar = MaybeUninit::<blst_scalar>::uninit();
+        unsafe {
+            blst_scalar_from_fr(scalar.as_mut_ptr(), &self.element);
+            blst_bendian_from_scalar(bytes.as_mut_ptr(), scalar.as_ptr());
+        }
+        bytes
     }
 
     pub fn as_u64(&self) -> u64 {
@@ -201,18 +141,16 @@ impl Fr {
         out[0]
     }
 
-    pub fn pow(&self, power: impl AsRef<Self>) -> Self {
-        let power = Scalar::from(power).to_be_bytes();
-        let mut power = U256::from_be_bytes(power);
-        let one = U256::from(1u64);
+    pub fn pow(&self, power: &Self) -> Self {
+        let mut power = *power;
 
         let mut out = *self;
         let mut tmp = Self::ONE;
-        while power > one {
+        while power != Self::ONE && power != Self::ZERO {
             // remaining power odd
-            if power.bit(0) {
+            if power.is_odd() {
                 tmp = out * tmp;
-                power -= one;
+                power = power - Self::ONE;
             }
 
             out = out * out;
@@ -224,6 +162,8 @@ impl Fr {
     }
 
     pub(crate) fn hash_to(data: impl AsRef<[u8]>) -> Self {
+        let mut out = MaybeUninit::<blst_fr>::uninit();
+        let mut scalar = MaybeUninit::<blst_scalar>::uninit();
         let mut hash = [0; Self::BYTES];
         unsafe {
             blst_sha256(
@@ -231,22 +171,28 @@ impl Fr {
                 data.as_ref().as_ptr(),
                 data.as_ref().len(),
             );
+            blst_scalar_from_bendian(scalar.as_mut_ptr(), hash.as_ptr());
+            blst_fr_from_scalar(out.as_mut_ptr(), scalar.as_ptr());
+            Self {
+                element: out.assume_init(),
+            }
         }
+    }
 
-        let modulus = U256::from_be_bytes(Self::MODULUS.to_be_bytes());
-        let hash = U256::from_be_bytes(hash);
-        let hash = hash.reduce_mod(modulus);
-
-        let hash: [u8; Self::BYTES] = hash.to_be_bytes();
-        let hash = FixedBytes::from(hash);
-
-        Self::from_be_bytes(hash).unwrap()
+    fn is_odd(&self) -> bool {
+        let mut scalar = blst_scalar::default();
+        let mut bendian = [0; Self::BYTES];
+        unsafe {
+            blst_scalar_from_fr(&mut scalar, &self.element);
+            blst_bendian_from_scalar(bendian.as_mut_ptr(), &scalar);
+        }
+        bendian[Self::BYTES - 1] & 0b00000001 == 1
     }
 }
 
-impl AsRef<Self> for Fr {
-    fn as_ref(&self) -> &Self {
-        self
+impl AsRef<blst_fr> for Fr {
+    fn as_ref(&self) -> &blst_fr {
+        &self.element
     }
 }
 
@@ -291,17 +237,35 @@ impl Sub for Fr {
     }
 }
 
-impl Mul for Fr {
-    type Output = Self;
+impl Mul<&Fr> for &Fr {
+    type Output = Fr;
 
-    fn mul(self, rhs: Self) -> Self::Output {
+    fn mul(self, rhs: &Fr) -> Self::Output {
         let mut out = MaybeUninit::<blst_fr>::uninit();
         unsafe {
             blst_fr_mul(out.as_mut_ptr(), &self.element, &rhs.element);
-            Self {
+            Fr {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl Mul<&Self> for Fr {
+    type Output = Self;
+
+    #[allow(clippy::op_ref)]
+    fn mul(self, rhs: &Self) -> Self::Output {
+        &self * rhs
+    }
+}
+
+impl Mul for Fr {
+    type Output = Self;
+
+    #[allow(clippy::op_ref)]
+    fn mul(self, rhs: Self) -> Self::Output {
+        self * &rhs
     }
 }
 
@@ -333,6 +297,40 @@ impl Neg for Fr {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl ShlAssign<usize> for Fr {
+    fn shl_assign(&mut self, rhs: usize) {
+        unsafe {
+            blst_fr_lshift(&mut self.element, &self.element, rhs);
+        }
+    }
+}
+
+impl Shl<usize> for Fr {
+    type Output = Fr;
+
+    fn shl(mut self, rhs: usize) -> Self::Output {
+        self <<= rhs;
+        self
+    }
+}
+
+impl ShrAssign<usize> for Fr {
+    fn shr_assign(&mut self, rhs: usize) {
+        unsafe {
+            blst_fr_rshift(&mut self.element, &self.element, rhs);
+        }
+    }
+}
+
+impl Shr<usize> for Fr {
+    type Output = Fr;
+
+    fn shr(mut self, rhs: usize) -> Self::Output {
+        self >>= rhs;
+        self
     }
 }
 
@@ -390,10 +388,21 @@ impl P1 {
     }
 
     // TODO: optimize w/ pippenger
-    pub fn lincomb(terms: impl Iterator<Item = (impl AsRef<Self>, impl AsRef<Scalar>)>) -> Self {
+    pub fn lincomb<'a>(terms: impl Iterator<Item = (&'a Self, &'a Fr)>) -> Self {
         let mut lincomb = Self::INF;
         for (point, scalar) in terms {
-            lincomb = lincomb + (*point.as_ref() * scalar.as_ref());
+            lincomb = lincomb + (point * scalar);
+        }
+
+        lincomb
+    }
+
+    // TODO: optimize w/ pippenger
+    // TODO: unify with `P1::lincomb`
+    pub fn lincomb_owned(terms: impl Iterator<Item = (Self, Fr)>) -> Self {
+        let mut lincomb = Self::INF;
+        for (point, scalar) in terms {
+            lincomb = lincomb + (point * scalar);
         }
 
         lincomb
@@ -411,9 +420,9 @@ impl P1 {
     }
 }
 
-impl AsRef<Self> for P1 {
-    fn as_ref(&self) -> &Self {
-        self
+impl AsRef<blst_p1> for P1 {
+    fn as_ref(&self) -> &blst_p1 {
+        &self.element
     }
 }
 
@@ -445,31 +454,36 @@ impl Add<&Self> for P1 {
     }
 }
 
-impl Mul<Scalar> for P1 {
-    type Output = Self;
+impl Mul<&Fr> for &P1 {
+    type Output = P1;
 
-    fn mul(self, rhs: Scalar) -> Self::Output {
+    fn mul(self, rhs: &Fr) -> Self::Output {
+        let mut scalar = blst_scalar::default();
         let mut out = MaybeUninit::<blst_p1>::uninit();
         unsafe {
-            blst_p1_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);
-            Self {
+            blst_scalar_from_fr(&mut scalar, &rhs.element);
+            blst_p1_mult(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
+            P1 {
                 element: out.assume_init(),
             }
         }
     }
 }
 
-impl Mul<&Scalar> for P1 {
+impl Mul<&Fr> for P1 {
     type Output = Self;
 
-    fn mul(self, rhs: &Scalar) -> Self::Output {
-        let mut out = MaybeUninit::<blst_p1>::uninit();
-        unsafe {
-            blst_p1_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);
-            Self {
-                element: out.assume_init(),
-            }
-        }
+    #[allow(clippy::op_ref)]
+    fn mul(self, rhs: &Fr) -> Self::Output {
+        &self * rhs
+    }
+}
+
+impl Mul<Fr> for P1 {
+    type Output = Self;
+
+    fn mul(self, rhs: Fr) -> Self::Output {
+        self * &rhs
     }
 }
 
@@ -553,17 +567,36 @@ impl Add for P2 {
     }
 }
 
-impl Mul<Scalar> for P2 {
-    type Output = Self;
+impl Mul<&Fr> for &P2 {
+    type Output = P2;
 
-    fn mul(self, rhs: Scalar) -> Self::Output {
+    fn mul(self, rhs: &Fr) -> Self::Output {
+        let mut scalar = blst_scalar::default();
         let mut out = MaybeUninit::<blst_p2>::uninit();
         unsafe {
-            blst_p2_mult(out.as_mut_ptr(), &self.element, rhs.element.b.as_ptr(), 255);
-            Self {
+            blst_scalar_from_fr(&mut scalar, &rhs.element);
+            blst_p2_mult(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
+            P2 {
                 element: out.assume_init(),
             }
         }
+    }
+}
+
+impl Mul<&Fr> for P2 {
+    type Output = Self;
+
+    #[allow(clippy::op_ref)]
+    fn mul(self, rhs: &Fr) -> Self::Output {
+        &self * rhs
+    }
+}
+
+impl Mul<Fr> for P2 {
+    type Output = Self;
+
+    fn mul(self, rhs: Fr) -> Self::Output {
+        self * &rhs
     }
 }
 
@@ -595,9 +628,9 @@ pub fn verify_pairings((a1, a2): (P1, P2), (b1, b2): (P1, P2)) -> bool {
     }
 }
 
-impl AsRef<Self> for P2 {
-    fn as_ref(&self) -> &Self {
-        self
+impl AsRef<blst_p2> for P2 {
+    fn as_ref(&self) -> &blst_p2 {
+        &self.element
     }
 }
 

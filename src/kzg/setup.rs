@@ -7,7 +7,8 @@ use std::{
 use super::{Commitment, Polynomial, Proof};
 use crate::{
     blob::Blob,
-    bls::{self, ECGroupError, Error as BlsError, Fr, Scalar, P1, P2},
+    bls::{self, ECGroupError, Error as BlsError, Fr, P1, P2},
+    math,
 };
 
 use alloy_primitives::{hex, Bytes, FixedBytes};
@@ -32,6 +33,7 @@ struct SetupUnchecked {
 pub struct Setup<const G1: usize, const G2: usize> {
     pub(crate) g1_lagrange: Box<[P1; G1]>,
     pub(crate) g2_monomial: Box<[P2; G2]>,
+    pub(crate) roots_of_unity: Box<[Fr; G1]>,
 }
 
 impl<const G1: usize, const G2: usize> Setup<G1, G2> {
@@ -76,9 +78,13 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             g2_monomial[i] = point;
         }
 
+        let roots_of_unity = math::roots_of_unity();
+        let roots_of_unity = Box::new(roots_of_unity);
+
         Ok(Setup {
             g1_lagrange,
             g2_monomial,
+            roots_of_unity,
         })
     }
 
@@ -89,14 +95,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         point: &Fr,
         eval: &Fr,
     ) -> bool {
-        let pairing1 = (
-            proof.0,
-            self.g2_monomial[1] + (P2::neg_generator() * Scalar::from(point)),
-        );
-        let pairing2 = (
-            commitment.0 + (P1::neg_generator() * Scalar::from(eval)),
-            P2::generator(),
-        );
+        let pairing1 = (proof.0, self.g2_monomial[1] + (P2::neg_generator() * point));
+        let pairing2 = (commitment.0 + (P1::neg_generator() * eval), P2::generator());
         bls::verify_pairings(pairing1, pairing2)
     }
 
@@ -111,35 +111,35 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         assert_eq!(commitments.as_ref().len(), points.as_ref().len());
         assert_eq!(points.as_ref().len(), evals.as_ref().len());
 
-        let domain = b"RCKZGBATCH___V1_";
+        const DOMAIN: &[u8; 16] = b"RCKZGBATCH___V1_";
         let degree = (G1 as u128).to_be_bytes();
         let len = (proofs.as_ref().len() as u128).to_be_bytes();
 
         let mut data = [0; 48];
-        data[..16].copy_from_slice(domain.as_slice());
+        data[..16].copy_from_slice(DOMAIN.as_slice());
         data[16..32].copy_from_slice(&degree);
         data[32..].copy_from_slice(&len);
 
         let r = Fr::hash_to(data);
         let mut rpowers = Vec::with_capacity(proofs.as_ref().len());
         for i in 0..proofs.as_ref().len() {
-            rpowers.push(r.pow(Fr::from(i as u64)));
+            rpowers.push(r.pow(&Fr::from(i as u64)));
         }
 
         let proof_lincomb = P1::lincomb(
             proofs
                 .as_ref()
                 .iter()
-                .map(|p| p.0)
-                .zip(rpowers.iter().map(Scalar::from)),
+                .map(|proof| &proof.0)
+                .zip(rpowers.iter()),
         );
-        let proof_z_lincomb = P1::lincomb(
-            proofs.as_ref().iter().map(|p| p.0).zip(
+        let proof_z_lincomb = P1::lincomb_owned(
+            proofs.as_ref().iter().map(|proof| proof.0).zip(
                 points
                     .as_ref()
                     .iter()
                     .zip(rpowers.iter())
-                    .map(|(point, pow)| Scalar::from(*point * *pow)),
+                    .map(|(point, pow)| point * pow),
             ),
         );
 
@@ -147,9 +147,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             .as_ref()
             .iter()
             .zip(evals.as_ref().iter())
-            .map(|(comm, eval)| comm.0 + (P1::neg_generator() * Scalar::from(eval)));
-        let comm_minus_eval_lincomb =
-            P1::lincomb(comm_minus_eval.zip(rpowers.iter().map(Scalar::from)));
+            .map(|(comm, eval)| comm.0 + (P1::neg_generator() * eval));
+        let comm_minus_eval_lincomb = P1::lincomb_owned(comm_minus_eval.zip(rpowers));
 
         bls::verify_pairings(
             (proof_lincomb, self.g2_monomial[1]),
@@ -171,9 +170,9 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         commitment: &Commitment,
         proof: &Proof,
     ) -> bool {
-        let poly = Polynomial(blob.elements.clone());
+        let poly = Polynomial(&blob.elements);
         let challenge = blob.challenge(commitment);
-        let eval = poly.evaluate(challenge);
+        let eval = poly.evaluate(challenge, self);
         self.verify_proof(proof, commitment, &challenge, &eval)
     }
 
@@ -190,21 +189,15 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let mut evaluations = Vec::with_capacity(blobs.as_ref().len());
 
         for i in 0..blobs.as_ref().len() {
-            let poly = Polynomial(blobs.as_ref()[i].elements.clone());
+            let poly = Polynomial(&blobs.as_ref()[i].elements);
             let challenge = blobs.as_ref()[i].challenge(&commitments.as_ref()[i]);
-            let eval = poly.evaluate(challenge);
+            let eval = poly.evaluate(challenge, self);
 
             challenges.push(challenge);
             evaluations.push(eval);
         }
 
         self.verify_proof_batch(proofs, commitments, challenges, evaluations)
-    }
-}
-
-impl<const G1: usize, const G2: usize> AsRef<Setup<G1, G2>> for Setup<G1, G2> {
-    fn as_ref(&self) -> &Setup<G1, G2> {
-        self
     }
 }
 
@@ -494,9 +487,9 @@ mod tests {
                     let expected_eval = Fr::from_be_bytes(eval).unwrap();
                     let expected_proof = P1::deserialize(proof).unwrap();
 
-                    let poly = Polynomial(input.blob.elements);
-                    let eval = poly.evaluate(input.z);
-                    let (_eval, proof) = poly.prove(input.z, setup.clone());
+                    let poly = Polynomial(&input.blob.elements);
+                    let eval = poly.evaluate(input.z, &setup);
+                    let (_eval, proof) = poly.prove(input.z, &setup);
 
                     assert_eq!(eval, expected_eval);
                     assert_eq!(proof.0, expected_proof);

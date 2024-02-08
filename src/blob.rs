@@ -70,7 +70,7 @@ impl<const N: usize> Blob<N> {
         const DOMAIN: &[u8; 16] = b"FSBLOBVERIFY_V1_";
         let degree = (N as u128).to_be_bytes();
 
-        let comm = commitment.0.serialize();
+        let comm = commitment.serialize();
 
         let mut data = Vec::with_capacity(8 + 16 + Commitment::BYTES + Self::BYTES);
         data.extend_from_slice(DOMAIN);

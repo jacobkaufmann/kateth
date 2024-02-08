@@ -95,8 +95,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         point: &Fr,
         eval: &Fr,
     ) -> bool {
-        let pairing1 = (proof.0, self.g2_monomial[1] + (P2::neg_generator() * point));
-        let pairing2 = (commitment.0 + (P1::neg_generator() * eval), P2::generator());
+        let pairing1 = (*proof, self.g2_monomial[1] + (P2::neg_generator() * point));
+        let pairing2 = (*commitment + (P1::neg_generator() * eval), P2::generator());
         bls::verify_pairings(pairing1, pairing2)
     }
 
@@ -126,15 +126,9 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             rpowers.push(r.pow(&Fr::from(i as u64)));
         }
 
-        let proof_lincomb = P1::lincomb(
-            proofs
-                .as_ref()
-                .iter()
-                .map(|proof| &proof.0)
-                .zip(rpowers.iter()),
-        );
+        let proof_lincomb = P1::lincomb(proofs.as_ref().iter().zip(rpowers.iter()));
         let proof_z_lincomb = P1::lincomb_owned(
-            proofs.as_ref().iter().map(|proof| proof.0).zip(
+            proofs.as_ref().iter().copied().zip(
                 points
                     .as_ref()
                     .iter()
@@ -147,7 +141,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             .as_ref()
             .iter()
             .zip(evals.as_ref().iter())
-            .map(|(comm, eval)| comm.0 + (P1::neg_generator() * eval));
+            .map(|(comm, eval)| *comm + (P1::neg_generator() * eval));
         let comm_minus_eval_lincomb = P1::lincomb_owned(comm_minus_eval.zip(rpowers));
 
         bls::verify_pairings(
@@ -492,7 +486,7 @@ mod tests {
                     let (_eval, proof) = poly.prove(input.z, &setup);
 
                     assert_eq!(eval, expected_eval);
-                    assert_eq!(proof.0, expected_proof);
+                    assert_eq!(proof, expected_proof);
                 }
                 Err(_) => {
                     assert!(case.output.is_none());

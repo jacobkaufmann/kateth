@@ -3,7 +3,7 @@ use crate::{
     math::BitReversalPermutation,
 };
 
-use super::{proof::Proof, setup::Setup};
+use super::{setup::Setup, Proof};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Polynomial<'a, const N: usize>(pub(crate) &'a [Fr; N]);
@@ -71,6 +71,6 @@ impl<'a, const N: usize> Polynomial<'a, N> {
         let g1_lagrange = BitReversalPermutation::new(setup.g1_lagrange.as_slice());
         let lincomb = P1::lincomb(g1_lagrange.iter().zip(quotient_poly.iter()));
 
-        (eval, Proof(lincomb))
+        (eval, lincomb)
     }
 }

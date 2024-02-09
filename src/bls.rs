@@ -1,4 +1,5 @@
 use std::{
+    cmp,
     mem::MaybeUninit,
     ops::{Add, Div, Mul, Neg, Shl, ShlAssign, Shr, ShrAssign, Sub},
 };
@@ -374,21 +375,11 @@ impl P1 {
     }
 
     // TODO: optimize w/ pippenger
-    pub fn lincomb<'a>(terms: impl Iterator<Item = (&'a Self, &'a Fr)>) -> Self {
+    pub fn lincomb(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
+        let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
         let mut lincomb = Self::INF;
-        for (point, scalar) in terms {
-            lincomb = lincomb + (point * scalar);
-        }
-
-        lincomb
-    }
-
-    // TODO: optimize w/ pippenger
-    // TODO: unify with `P1::lincomb`
-    pub fn lincomb_owned(terms: impl Iterator<Item = (Self, Fr)>) -> Self {
-        let mut lincomb = Self::INF;
-        for (point, scalar) in terms {
-            lincomb = lincomb + (point * scalar);
+        for i in 0..n {
+            lincomb = lincomb + (points.as_ref()[i] * scalars.as_ref()[i]);
         }
 
         lincomb

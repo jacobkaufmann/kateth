@@ -388,7 +388,7 @@ impl P1 {
 
     pub fn lincomb(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
         let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
-        let mut lincomb = P1::INF;
+        let mut lincomb = Self::INF;
         for i in 0..n {
             lincomb = lincomb + (points.as_ref()[i] * scalars.as_ref()[i]);
         }
@@ -399,19 +399,19 @@ impl P1 {
         let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
 
         let points = unsafe {
-            slice::from_raw_parts(
-                points.as_ref().as_ptr() as *const blst_p1,
-                points.as_ref().len(),
-            )
+            // NOTE: we can perform the cast from `*const P1` to `*const blst_p1` given
+            // `repr(transparent)` for `P1`
+            slice::from_raw_parts(points.as_ref().as_ptr() as *const blst_p1, n)
         };
         let points = p1_affines::from(points);
 
-        let mut scalar_bytes = Vec::with_capacity(scalars.as_ref().len() * Fr::BYTES);
-        for i in 0..n {
-            scalar_bytes.extend_from_slice(scalars.as_ref()[i].to_le_bytes().as_slice());
+        let scalar_iter = scalars.as_ref().iter().take(n);
+        let mut scalars = Vec::with_capacity(n * Fr::BYTES);
+        for scalar in scalar_iter.map(|scalar| scalar.to_le_bytes()) {
+            scalars.extend_from_slice(scalar.as_slice());
         }
 
-        let lincomb = points.mult(&scalar_bytes, 255);
+        let lincomb = points.mult(&scalars, 255);
 
         Self { element: lincomb }
     }

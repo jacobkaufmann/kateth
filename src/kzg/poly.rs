@@ -65,7 +65,7 @@ impl<'a, const N: usize> Polynomial<'a, N> {
             quotient_poly.push(quotient);
         }
 
-        let lincomb = P1::lincomb(setup.g1_lagrange_brp.as_slice(), quotient_poly);
+        let lincomb = P1::lincomb_pippenger(setup.g1_lagrange_brp.as_slice(), quotient_poly);
 
         (eval, lincomb)
     }

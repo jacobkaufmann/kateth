@@ -36,7 +36,8 @@ impl<const N: usize> Blob<N> {
     }
 
     pub(crate) fn commitment<const G2: usize>(&self, setup: &Setup<N, G2>) -> Commitment {
-        let lincomb = P1::lincomb(setup.g1_lagrange_brp.as_slice(), self.elements.as_slice());
+        let lincomb =
+            P1::lincomb_pippenger(setup.g1_lagrange_brp.as_slice(), self.elements.as_slice());
 
         Commitment::from(lincomb)
     }

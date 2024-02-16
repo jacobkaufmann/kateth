@@ -1,4 +1,6 @@
+use core::slice;
 use std::{
+    cmp,
     mem::MaybeUninit,
     ops::{Add, Div, Mul, Neg, Shl, ShlAssign, Shr, ShrAssign, Sub},
 };
@@ -7,12 +9,12 @@ use blst::{
     blst_bendian_from_scalar, blst_final_exp, blst_fp, blst_fp12, blst_fp12_is_one, blst_fp12_mul,
     blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
     blst_fr_from_uint64, blst_fr_lshift, blst_fr_mul, blst_fr_rshift, blst_fr_sub,
-    blst_miller_loop, blst_p1, blst_p1_add, blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg,
-    blst_p1_compress, blst_p1_deserialize, blst_p1_from_affine, blst_p1_mult, blst_p1_to_affine,
-    blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_deserialize,
-    blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_scalar, blst_scalar_fr_check,
-    blst_scalar_from_bendian, blst_scalar_from_fr, blst_sha256, blst_uint64_from_fr, BLS12_381_G2,
-    BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
+    blst_lendian_from_scalar, blst_miller_loop, blst_p1, blst_p1_add, blst_p1_affine,
+    blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_compress, blst_p1_deserialize, blst_p1_from_affine,
+    blst_p1_mult, blst_p1_to_affine, blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2,
+    blst_p2_deserialize, blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_scalar,
+    blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr, blst_sha256,
+    blst_uint64_from_fr, p1_affines, BLS12_381_G2, BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -129,6 +131,16 @@ impl Fr {
         unsafe {
             blst_scalar_from_fr(scalar.as_mut_ptr(), &self.element);
             blst_bendian_from_scalar(bytes.as_mut_ptr(), scalar.as_ptr());
+        }
+        bytes
+    }
+
+    pub fn to_le_bytes(self) -> [u8; Self::BYTES] {
+        let mut bytes = [0; Self::BYTES];
+        let mut scalar = MaybeUninit::<blst_scalar>::uninit();
+        unsafe {
+            blst_scalar_from_fr(scalar.as_mut_ptr(), &self.element);
+            blst_lendian_from_scalar(bytes.as_mut_ptr(), scalar.as_ptr());
         }
         bytes
     }
@@ -335,6 +347,7 @@ impl Shr<usize> for Fr {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct P1 {
     element: blst_p1,
 }
@@ -387,25 +400,34 @@ impl P1 {
         out
     }
 
-    // TODO: optimize w/ pippenger
-    pub fn lincomb<'a>(terms: impl Iterator<Item = (&'a Self, &'a Fr)>) -> Self {
+    pub fn lincomb(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
+        let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
         let mut lincomb = Self::INF;
-        for (point, scalar) in terms {
-            lincomb = lincomb + (point * scalar);
+        for i in 0..n {
+            lincomb = lincomb + (points.as_ref()[i] * scalars.as_ref()[i]);
         }
-
         lincomb
     }
 
-    // TODO: optimize w/ pippenger
-    // TODO: unify with `P1::lincomb`
-    pub fn lincomb_owned(terms: impl Iterator<Item = (Self, Fr)>) -> Self {
-        let mut lincomb = Self::INF;
-        for (point, scalar) in terms {
-            lincomb = lincomb + (point * scalar);
+    pub fn lincomb_pippenger(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
+        let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
+
+        let points = unsafe {
+            // NOTE: we can perform the cast from `*const P1` to `*const blst_p1` given
+            // `repr(transparent)` for `P1`
+            slice::from_raw_parts(points.as_ref().as_ptr() as *const blst_p1, n)
+        };
+        let points = p1_affines::from(points);
+
+        let scalar_iter = scalars.as_ref().iter().take(n);
+        let mut scalars = Vec::with_capacity(n * Fr::BYTES);
+        for scalar in scalar_iter.map(|scalar| scalar.to_le_bytes()) {
+            scalars.extend_from_slice(scalar.as_slice());
         }
 
-        lincomb
+        let lincomb = points.mult(&scalars, 255);
+
+        Self { element: lincomb }
     }
 
     // TODO: make available as `const`

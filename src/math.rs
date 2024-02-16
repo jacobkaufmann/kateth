@@ -1,4 +1,4 @@
-use core::{marker::PhantomData, ops::Index};
+use std::fmt::Debug;
 
 use crate::bls::Fr;
 
@@ -28,66 +28,45 @@ pub fn roots_of_unity<const ORDER: usize>() -> [Fr; ORDER] {
     roots
 }
 
-pub struct BitReversalPermutation<T, S> {
-    elements: S,
-    phantom: PhantomData<T>,
-}
-
-impl<T, S> BitReversalPermutation<T, S>
+/// # Panics
+///
+/// This function will panic if the length of `elements` is not a power of 2.
+pub(crate) fn bit_reversal_permutation<T>(elements: impl AsRef<[T]>) -> Vec<T>
 where
-    S: AsRef<[T]>,
+    T: Copy,
 {
-    /// # Panics
-    ///
-    /// This function will panic if the length of `elements` is not a power of 2.
-    pub fn new(elements: S) -> Self {
-        assert!(elements.as_ref().len().is_power_of_two());
-        Self {
-            elements,
-            phantom: PhantomData,
-        }
+    let n = elements.as_ref().len();
+    assert!(n.is_power_of_two());
+    let mut brp = Vec::with_capacity(n);
+    for i in 0..n {
+        let index = bit_reversal_permutation_index(i, n);
+        brp.push(elements.as_ref()[index]);
     }
-
-    pub(crate) fn iter(&self) -> BitReversalPermutationIter<T> {
-        BitReversalPermutationIter {
-            inner: self.elements.as_ref(),
-            index: 0,
-        }
-    }
+    brp
 }
 
-impl<T, S> Index<usize> for BitReversalPermutation<T, S>
+/// # Panics
+///
+/// This function will panic if the length of `elements` is not equal to `N`.
+///
+/// This function will panic if the length of `elements` is not a power of 2.
+pub(crate) fn bit_reversal_permutation_boxed_array<T, const N: usize>(
+    elements: impl AsRef<[T]>,
+) -> Box<[T; N]>
 where
-    S: AsRef<[T]>,
+    T: Copy + Debug,
 {
-    type Output = T;
+    assert_eq!(elements.as_ref().len(), N);
+    assert!(N.is_power_of_two());
 
-    fn index(&self, index: usize) -> &Self::Output {
-        let index = bit_reversal_permutation_index(index, self.elements.as_ref().len());
-        &self.elements.as_ref()[index]
-    }
-}
+    let brp = bit_reversal_permutation(elements);
 
-pub struct BitReversalPermutationIter<'a, T> {
-    inner: &'a [T],
-    index: usize,
-}
+    // TODO: make sure the conversion does not cause a new allocation
+    let brp: Box<[T; N]> = brp
+        .try_into()
+        .expect("infallible conversion to equal len boxed array");
 
-impl<'a, T> Iterator for BitReversalPermutationIter<'a, T> {
-    type Item = &'a T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index == self.inner.len() {
-            return None;
-        }
-
-        let index = bit_reversal_permutation_index(self.index, self.inner.len());
-        let next = &self.inner[index];
-
-        self.index += 1;
-
-        Some(next)
-    }
+    brp
 }
 
 fn bit_reversal_permutation_index(index: usize, len: usize) -> usize {
@@ -107,12 +86,12 @@ mod tests {
         }
 
         // since the permutation is an involution, the double application should be equal to the identity function
-        let permutation = BitReversalPermutation::new(elements.clone());
+        let permutation = super::bit_reversal_permutation(&elements);
         let mut permuted = Vec::with_capacity(N);
-        for i in 0..N {
-            permuted.push(permutation[i]);
+        for element in permutation.iter().take(N) {
+            permuted.push(*element);
         }
-        let double_permutation = BitReversalPermutation::new(permuted);
+        let double_permutation = super::bit_reversal_permutation(permuted);
         for i in 0..N {
             assert_eq!(double_permutation[i], elements[i]);
         }
@@ -122,8 +101,8 @@ mod tests {
     #[should_panic]
     fn bit_reversal_permutation_non_power_of_two() {
         const N: usize = (1 << 12) - 1;
-        let mut elements = vec![0u16; N];
-        BitReversalPermutation::new(&mut elements);
+        let elements = vec![0u16; N];
+        super::bit_reversal_permutation(elements);
     }
 
     #[test]

@@ -31,9 +31,9 @@ struct SetupUnchecked {
 
 #[derive(Clone, Debug)]
 pub struct Setup<const G1: usize, const G2: usize> {
-    pub(crate) g1_lagrange: Box<[P1; G1]>,
+    pub(crate) g1_lagrange_brp: Box<[P1; G1]>,
     pub(crate) g2_monomial: Box<[P2; G2]>,
-    pub(crate) roots_of_unity: Box<[Fr; G1]>,
+    pub(crate) roots_of_unity_brp: Box<[Fr; G1]>,
 }
 
 impl<const G1: usize, const G2: usize> Setup<G1, G2> {
@@ -63,6 +63,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
                 P1::deserialize(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
             g1_lagrange[i] = point;
         }
+        let g1_lagrange_brp = math::bit_reversal_permutation_boxed_array(g1_lagrange.as_slice());
 
         let mut g2_monomial: Box<[P2; G2]> = Box::new([P2::default(); G2]);
         for (i, point) in setup.g2_monomial.iter().enumerate() {
@@ -78,13 +79,13 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             g2_monomial[i] = point;
         }
 
-        let roots_of_unity = math::roots_of_unity();
-        let roots_of_unity = Box::new(roots_of_unity);
+        let roots_of_unity: [Fr; G1] = math::roots_of_unity();
+        let roots_of_unity_brp = math::bit_reversal_permutation_boxed_array(roots_of_unity);
 
         Ok(Setup {
-            g1_lagrange,
+            g1_lagrange_brp,
             g2_monomial,
-            roots_of_unity,
+            roots_of_unity_brp,
         })
     }
 
@@ -95,8 +96,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         point: &Fr,
         eval: &Fr,
     ) -> bool {
-        let pairing1 = (proof.0, self.g2_monomial[1] + (P2::neg_generator() * point));
-        let pairing2 = (commitment.0 + (P1::neg_generator() * eval), P2::generator());
+        let pairing1 = (*proof, self.g2_monomial[1] + (P2::neg_generator() * point));
+        let pairing2 = (*commitment + (P1::neg_generator() * eval), P2::generator());
         bls::verify_pairings(pairing1, pairing2)
     }
 
@@ -110,10 +111,11 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         assert_eq!(proofs.as_ref().len(), commitments.as_ref().len());
         assert_eq!(commitments.as_ref().len(), points.as_ref().len());
         assert_eq!(points.as_ref().len(), evals.as_ref().len());
+        let n = proofs.as_ref().len();
 
         const DOMAIN: &[u8; 16] = b"RCKZGBATCH___V1_";
         let degree = (G1 as u128).to_be_bytes();
-        let len = (proofs.as_ref().len() as u128).to_be_bytes();
+        let len = (n as u128).to_be_bytes();
 
         let mut data = [0; 48];
         data[..16].copy_from_slice(DOMAIN.as_slice());
@@ -121,34 +123,25 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         data[32..].copy_from_slice(&len);
 
         let r = Fr::hash_to(data);
-        let mut rpowers = Vec::with_capacity(proofs.as_ref().len());
+        let mut rpowers = Vec::with_capacity(n);
+        let mut points_mul_rpowers = Vec::with_capacity(n);
+        let mut comms_minus_evals = Vec::with_capacity(n);
         for i in 0..proofs.as_ref().len() {
-            rpowers.push(r.pow(&Fr::from(i as u64)));
+            let rpower = r.pow(&Fr::from(i as u64));
+            rpowers.push(rpower);
+
+            let point = points.as_ref()[i];
+            points_mul_rpowers.push(point * rpower);
+
+            let commitment = commitments.as_ref()[i];
+            let eval = evals.as_ref()[i];
+            comms_minus_evals.push(commitment + (P1::neg_generator() * eval));
         }
 
-        let proof_lincomb = P1::lincomb(
-            proofs
-                .as_ref()
-                .iter()
-                .map(|proof| &proof.0)
-                .zip(rpowers.iter()),
-        );
-        let proof_z_lincomb = P1::lincomb_owned(
-            proofs.as_ref().iter().map(|proof| proof.0).zip(
-                points
-                    .as_ref()
-                    .iter()
-                    .zip(rpowers.iter())
-                    .map(|(point, pow)| point * pow),
-            ),
-        );
+        let proof_lincomb = P1::lincomb(&proofs, &rpowers);
+        let proof_z_lincomb = P1::lincomb(proofs, points_mul_rpowers);
 
-        let comm_minus_eval = commitments
-            .as_ref()
-            .iter()
-            .zip(evals.as_ref().iter())
-            .map(|(comm, eval)| comm.0 + (P1::neg_generator() * eval));
-        let comm_minus_eval_lincomb = P1::lincomb_owned(comm_minus_eval.zip(rpowers));
+        let comm_minus_eval_lincomb = P1::lincomb(comms_minus_evals, rpowers);
 
         bls::verify_pairings(
             (proof_lincomb, self.g2_monomial[1]),
@@ -492,7 +485,7 @@ mod tests {
                     let (_eval, proof) = poly.prove(input.z, &setup);
 
                     assert_eq!(eval, expected_eval);
-                    assert_eq!(proof.0, expected_proof);
+                    assert_eq!(proof, expected_proof);
                 }
                 Err(_) => {
                     assert!(case.output.is_none());

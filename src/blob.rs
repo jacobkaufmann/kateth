@@ -1,7 +1,6 @@
 use crate::{
     bls::{FiniteFieldError, Fr, P1},
     kzg::{Commitment, Polynomial, Proof, Setup},
-    math::BitReversalPermutation,
 };
 
 pub enum Error {
@@ -37,8 +36,8 @@ impl<const N: usize> Blob<N> {
     }
 
     pub(crate) fn commitment<const G2: usize>(&self, setup: &Setup<N, G2>) -> Commitment {
-        let g1_lagrange = BitReversalPermutation::new(setup.g1_lagrange.as_slice());
-        let lincomb = P1::lincomb(g1_lagrange.iter().zip(self.elements.iter()));
+        let lincomb =
+            P1::lincomb_pippenger(setup.g1_lagrange_brp.as_slice(), self.elements.as_slice());
 
         Commitment::from(lincomb)
     }
@@ -70,7 +69,7 @@ impl<const N: usize> Blob<N> {
         const DOMAIN: &[u8; 16] = b"FSBLOBVERIFY_V1_";
         let degree = (N as u128).to_be_bytes();
 
-        let comm = commitment.0.serialize();
+        let comm = commitment.serialize();
 
         let mut data = Vec::with_capacity(8 + 16 + Commitment::BYTES + Self::BYTES);
         data.extend_from_slice(DOMAIN);

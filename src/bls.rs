@@ -355,13 +355,13 @@ impl P1 {
     pub const BITS: usize = 384;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn deserialize(bytes: impl AsRef<[u8; Self::BYTES]>) -> Result<Self, ECGroupError> {
+    pub fn deserialize(bytes: &[u8; Self::BYTES]) -> Result<Self, ECGroupError> {
         let mut affine = MaybeUninit::<blst_p1_affine>::uninit();
         let mut out = MaybeUninit::<blst_p1>::uninit();
         unsafe {
             // NOTE: deserialize performs a curve check but not a subgroup check. if that changes,
             // then we should encounter `unreachable` for `BLST_POINT_NOT_IN_GROUP` in tests.
-            match blst_p1_deserialize(affine.as_mut_ptr(), bytes.as_ref().as_ptr()) {
+            match blst_p1_deserialize(affine.as_mut_ptr(), bytes.as_ptr()) {
                 BLST_ERROR::BLST_SUCCESS => {}
                 BLST_ERROR::BLST_BAD_ENCODING => return Err(ECGroupError::InvalidEncoding),
                 BLST_ERROR::BLST_POINT_NOT_ON_CURVE => return Err(ECGroupError::NotOnCurve),
@@ -515,7 +515,7 @@ impl P2 {
     pub const BITS: usize = 768;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn deserialize(bytes: impl AsRef<[u8; Self::BYTES]>) -> Result<Self, ECGroupError> {
+    pub fn deserialize(bytes: &[u8; Self::BYTES]) -> Result<Self, ECGroupError> {
         let mut affine = MaybeUninit::<blst_p2_affine>::uninit();
         let mut out = MaybeUninit::<blst_p2>::uninit();
         unsafe {

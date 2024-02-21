@@ -16,9 +16,10 @@ serde_yaml = "0.9.25"
 rand = "0.8.5"
 
 [features]
-default = ["rand"]
+default = []
 rand = ["dep:rand"]
 
 [[bench]]
 name = "kzg"
 harness = false
+required-features = ["rand"]

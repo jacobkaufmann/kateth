@@ -19,7 +19,7 @@ fn fr_from_bytes(bytes: &Bytes) -> Option<Fr> {
 
 fn p1_from_bytes(bytes: &Bytes) -> Option<P1> {
     let bytes = FixedBytes::<{ P1::BYTES }>::try_from(bytes.as_ref()).ok()?;
-    Commitment::deserialize(bytes).ok()
+    P1::deserialize(bytes).ok()
 }
 
 #[derive(Deserialize)]

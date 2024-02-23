@@ -3,6 +3,9 @@ use crate::{blob, bls};
 mod poly;
 mod setup;
 
+#[cfg(test)]
+mod spec;
+
 pub type Proof = bls::P1;
 pub type Commitment = bls::P1;
 

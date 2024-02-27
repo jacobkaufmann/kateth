@@ -9,6 +9,10 @@ mod spec;
 pub type Proof = bls::P1;
 pub type Commitment = bls::P1;
 
+pub type Bytes32 = [u8; 32];
+pub type Bytes48 = [u8; 48];
+
+#[derive(Clone, Copy, Debug)]
 pub enum Error {
     Blob(blob::Error),
     Bls(bls::Error),

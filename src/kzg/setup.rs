@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use super::{Commitment, Error, Polynomial, Proof};
+use super::{Bytes32, Bytes48, Commitment, Error, Polynomial, Proof};
 use crate::{
     blob::{Blob, Error as BlobError},
     bls::{self, ECGroupError, Error as BlsError, Fr, P1, P2},
@@ -89,7 +89,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         })
     }
 
-    pub fn verify_proof(
+    fn verify_proof_inner(
         &self,
         proof: &Proof,
         commitment: &Commitment,
@@ -101,12 +101,12 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         bls::verify_pairings(pairing1, pairing2)
     }
 
-    pub fn verify_proof_raw(
+    pub fn verify_proof(
         &self,
-        proof: &[u8; Proof::BYTES],
-        commitment: &[u8; Commitment::BYTES],
-        point: &[u8; Fr::BYTES],
-        eval: &[u8; Fr::BYTES],
+        proof: &Bytes48,
+        commitment: &Bytes48,
+        point: &Bytes32,
+        eval: &Bytes32,
     ) -> Result<bool, Error> {
         let proof = Proof::deserialize(proof).map_err(|err| Error::from(BlsError::ECGroup(err)))?;
         let commitment = Commitment::deserialize(commitment)
@@ -116,11 +116,11 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let eval =
             Fr::from_be_slice(eval).map_err(|err| Error::from(BlsError::FiniteField(err)))?;
 
-        let verified = self.verify_proof(&proof, &commitment, &point, &eval);
+        let verified = self.verify_proof_inner(&proof, &commitment, &point, &eval);
         Ok(verified)
     }
 
-    pub fn verify_proof_batch(
+    fn verify_proof_batch(
         &self,
         proofs: impl AsRef<[Proof]>,
         commitments: impl AsRef<[Commitment]>,
@@ -168,48 +168,40 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         )
     }
 
-    pub fn blob_to_commitment(&self, blob: &Blob<G1>) -> Commitment {
+    fn blob_to_commitment_inner(&self, blob: &Blob<G1>) -> Commitment {
         blob.commitment(self)
     }
 
-    pub fn blob_to_commitment_raw(&self, blob: impl AsRef<[u8]>) -> Result<Commitment, BlobError> {
+    pub fn blob_to_commitment(&self, blob: impl AsRef<[u8]>) -> Result<Commitment, BlobError> {
         let blob = Blob::<G1>::from_slice(blob)?;
-        let commitment = self.blob_to_commitment(&blob);
+        let commitment = self.blob_to_commitment_inner(&blob);
         Ok(commitment)
     }
 
-    pub fn blob_proof(&self, blob: &Blob<G1>, commitment: &Commitment) -> Proof {
+    fn blob_proof_inner(&self, blob: &Blob<G1>, commitment: &Commitment) -> Proof {
         blob.proof(commitment, self)
     }
 
-    pub fn blob_proof_raw(
-        &self,
-        blob: impl AsRef<[u8]>,
-        commitment: &[u8; Commitment::BYTES],
-    ) -> Result<Proof, Error> {
+    pub fn blob_proof(&self, blob: impl AsRef<[u8]>, commitment: &Bytes48) -> Result<Proof, Error> {
         let blob: Blob<G1> = Blob::from_slice(blob).map_err(Error::from)?;
         let commitment = Commitment::deserialize(commitment)
             .map_err(|err| Error::from(BlsError::ECGroup(err)))?;
-        let proof = blob.proof(&commitment, self);
+        let proof = self.blob_proof_inner(&blob, &commitment);
         Ok(proof)
     }
 
-    pub fn proof_raw(
-        &self,
-        blob: impl AsRef<[u8]>,
-        point: &[u8; Fr::BYTES],
-    ) -> Result<Proof, Error> {
+    pub fn proof(&self, blob: impl AsRef<[u8]>, point: &Bytes32) -> Result<(Proof, Fr), Error> {
         let blob: Blob<G1> = Blob::from_slice(blob).map_err(Error::from)?;
         let point =
             Fr::from_be_slice(point).map_err(|err| Error::from(BlsError::FiniteField(err)))?;
 
         let poly = Polynomial(&blob.elements);
-        let (_eval, proof) = poly.prove(point, self);
+        let (eval, proof) = poly.prove(point, self);
 
-        Ok(proof)
+        Ok((proof, eval))
     }
 
-    pub fn verify_blob_proof(
+    fn verify_blob_proof_inner(
         &self,
         blob: &Blob<G1>,
         commitment: &Commitment,
@@ -218,25 +210,25 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let poly = Polynomial(&blob.elements);
         let challenge = blob.challenge(commitment);
         let eval = poly.evaluate(challenge, self);
-        self.verify_proof(proof, commitment, &challenge, &eval)
+        self.verify_proof_inner(proof, commitment, &challenge, &eval)
     }
 
-    pub fn verify_blob_proof_raw(
+    pub fn verify_blob_proof(
         &self,
         blob: impl AsRef<[u8]>,
-        commitment: &[u8; Commitment::BYTES],
-        proof: &[u8; Proof::BYTES],
+        commitment: &Bytes48,
+        proof: &Bytes48,
     ) -> Result<bool, Error> {
         let blob: Blob<G1> = Blob::from_slice(blob).map_err(Error::from)?;
         let commitment = Commitment::deserialize(commitment)
             .map_err(|err| Error::from(BlsError::ECGroup(err)))?;
         let proof = Proof::deserialize(proof).map_err(|err| Error::from(BlsError::ECGroup(err)))?;
 
-        let verified = self.verify_blob_proof(&blob, &commitment, &proof);
+        let verified = self.verify_blob_proof_inner(&blob, &commitment, &proof);
         Ok(verified)
     }
 
-    pub fn verify_blob_proof_batch(
+    fn verify_blob_proof_batch_inner(
         &self,
         blobs: impl AsRef<[Blob<G1>]>,
         commitments: impl AsRef<[Commitment]>,
@@ -260,11 +252,11 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         self.verify_proof_batch(proofs, commitments, challenges, evaluations)
     }
 
-    pub fn verify_blob_proof_batch_raw<'a, 'b, B>(
+    pub fn verify_blob_proof_batch<B>(
         &self,
         blobs: impl AsRef<[B]>,
-        commitments: impl AsRef<[&'a [u8; Commitment::BYTES]]>,
-        proofs: impl AsRef<[&'b [u8; Proof::BYTES]]>,
+        commitments: impl AsRef<[Bytes48]>,
+        proofs: impl AsRef<[Bytes48]>,
     ) -> Result<bool, Error>
     where
         B: AsRef<[u8]>,
@@ -279,18 +271,15 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let commitments: Result<Vec<Commitment>, _> = commitments
             .as_ref()
             .iter()
-            .map(|comm| Commitment::deserialize(comm))
+            .map(Commitment::deserialize)
             .collect();
         let commitments = commitments.map_err(|err| Error::from(BlsError::ECGroup(err)))?;
 
-        let proofs: Result<Vec<Proof>, _> = proofs
-            .as_ref()
-            .iter()
-            .map(|proof| Proof::deserialize(proof))
-            .collect();
+        let proofs: Result<Vec<Proof>, _> =
+            proofs.as_ref().iter().map(Proof::deserialize).collect();
         let proofs = proofs.map_err(|err| Error::from(BlsError::ECGroup(err)))?;
 
-        let verified = self.verify_blob_proof_batch(blobs, commitments, proofs);
+        let verified = self.verify_blob_proof_batch_inner(blobs, commitments, proofs);
         Ok(verified)
     }
 }
@@ -349,11 +338,13 @@ mod tests {
                 assert!(expected.is_none());
                 continue;
             };
+            let Ok((proof, y)) = setup.proof(blob, &z) else {
+                assert!(expected.is_none());
+                continue;
+            };
             let (expected_proof, expected_y) = expected.unwrap();
-            let poly = Polynomial(&blob.elements);
-            let (y, proof) = poly.prove(z, &setup);
-            assert_eq!(proof, expected_proof);
-            assert_eq!(y, expected_y);
+            assert_eq!(proof.serialize(), expected_proof);
+            assert_eq!(y.to_be_bytes(), expected_y);
         }
     }
 
@@ -371,9 +362,12 @@ mod tests {
                 assert!(expected.is_none());
                 continue;
             };
+            let Ok(proof) = setup.blob_proof(&blob, &commitment) else {
+                assert!(expected.is_none());
+                continue;
+            };
             let expected = expected.unwrap();
-            let proof = setup.blob_proof(&blob, &commitment);
-            assert_eq!(proof, expected);
+            assert_eq!(proof.serialize(), expected);
         }
     }
 
@@ -388,13 +382,12 @@ mod tests {
             let case: BlobToCommitment = serde_yaml::from_reader(reader).unwrap();
 
             let expected = case.output();
-            let Some(blob) = case.input() else {
+            let Ok(commitment) = setup.blob_to_commitment(case.input()) else {
                 assert!(expected.is_none());
                 continue;
             };
             let expected = expected.unwrap();
-            let commitment = setup.blob_to_commitment(&blob);
-            assert_eq!(commitment, expected);
+            assert_eq!(commitment.serialize(), expected);
         }
     }
 
@@ -413,8 +406,11 @@ mod tests {
                 assert!(expected.is_none());
                 continue;
             };
+            let Ok(verified) = setup.verify_proof(&proof, &commitment, &z, &y) else {
+                assert!(expected.is_none());
+                continue;
+            };
             let expected = expected.unwrap();
-            let verified = setup.verify_proof(&proof, &commitment, &z, &y);
             assert_eq!(verified, expected);
         }
     }
@@ -434,8 +430,11 @@ mod tests {
                 assert!(expected.is_none());
                 continue;
             };
+            let Ok(verified) = setup.verify_blob_proof(&blob, &commitment, &proof) else {
+                assert!(expected.is_none());
+                continue;
+            };
             let expected = expected.unwrap();
-            let verified = setup.verify_blob_proof(&blob, &commitment, &proof);
             assert_eq!(verified, expected);
         }
     }
@@ -455,8 +454,11 @@ mod tests {
                 assert!(expected.is_none());
                 continue;
             };
+            let Ok(verified) = setup.verify_blob_proof_batch(&blobs, &commitments, &proofs) else {
+                assert!(expected.is_none());
+                continue;
+            };
             let expected = expected.unwrap();
-            let verified = setup.verify_blob_proof_batch(&blobs, &commitments, &proofs);
             assert_eq!(verified, expected);
         }
     }

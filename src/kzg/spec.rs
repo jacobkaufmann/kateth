@@ -1,25 +1,18 @@
 use alloy_primitives::{Bytes, FixedBytes};
 use serde::Deserialize;
 
-use crate::{
-    blob::Blob,
-    bls::{Fr, P1},
-};
+use crate::bls::{Fr, P1};
 
-use super::{Commitment, Proof};
+use super::{Bytes32, Bytes48};
 
-fn blob_from_bytes<const N: usize>(bytes: &Bytes) -> Option<Blob<N>> {
-    Blob::<N>::from_slice(bytes.as_ref()).ok()
-}
-
-fn fr_from_bytes(bytes: &Bytes) -> Option<Fr> {
+fn bytes32_from_bytes(bytes: &Bytes) -> Option<Bytes32> {
     let bytes = FixedBytes::<{ Fr::BYTES }>::try_from(bytes.as_ref()).ok();
-    bytes.and_then(Fr::from_be_bytes)
+    bytes.map(Into::<Bytes32>::into)
 }
 
-fn p1_from_bytes(bytes: &Bytes) -> Option<P1> {
+fn bytes48_from_bytes(bytes: &Bytes) -> Option<Bytes48> {
     let bytes = FixedBytes::<{ P1::BYTES }>::try_from(bytes.as_ref()).ok()?;
-    P1::deserialize(bytes).ok()
+    Some(bytes.into())
 }
 
 #[derive(Deserialize)]
@@ -34,12 +27,12 @@ pub struct BlobToCommitment {
 }
 
 impl BlobToCommitment {
-    pub fn input<const N: usize>(&self) -> Option<Blob<N>> {
-        blob_from_bytes(&self.input.blob)
+    pub fn input(&self) -> Bytes {
+        self.input.blob.clone()
     }
 
-    pub fn output(&self) -> Option<Commitment> {
-        self.output.as_ref().and_then(p1_from_bytes)
+    pub fn output(&self) -> Option<Bytes48> {
+        self.output.as_ref().and_then(bytes48_from_bytes)
     }
 }
 
@@ -56,20 +49,16 @@ pub struct ComputeBlobProof {
 }
 
 impl ComputeBlobProof {
-    fn blob<const N: usize>(&self) -> Option<Blob<N>> {
-        blob_from_bytes(&self.input.blob)
+    fn commitment(&self) -> Option<Bytes48> {
+        bytes48_from_bytes(&self.input.commitment)
     }
 
-    fn commitment(&self) -> Option<Commitment> {
-        p1_from_bytes(&self.input.commitment)
+    pub fn input(&self) -> Option<(Bytes, Bytes48)> {
+        Some(self.input.blob.clone()).zip(self.commitment())
     }
 
-    pub fn input<const N: usize>(&self) -> Option<(Blob<N>, Commitment)> {
-        self.blob().zip(self.commitment())
-    }
-
-    pub fn output(&self) -> Option<Proof> {
-        self.output.as_ref().and_then(p1_from_bytes)
+    pub fn output(&self) -> Option<Bytes48> {
+        self.output.as_ref().and_then(bytes48_from_bytes)
     }
 }
 
@@ -86,22 +75,18 @@ pub struct ComputeProof {
 }
 
 impl ComputeProof {
-    fn blob<const N: usize>(&self) -> Option<Blob<N>> {
-        blob_from_bytes(&self.input.blob)
+    fn z(&self) -> Option<Bytes32> {
+        bytes32_from_bytes(&self.input.z)
     }
 
-    fn z(&self) -> Option<Fr> {
-        fr_from_bytes(&self.input.z)
+    pub fn input(&self) -> Option<(Bytes, Bytes32)> {
+        Some(self.input.blob.clone()).zip(self.z())
     }
 
-    pub fn input<const N: usize>(&self) -> Option<(Blob<N>, Fr)> {
-        self.blob().zip(self.z())
-    }
-
-    pub fn output(&self) -> Option<(Proof, Fr)> {
+    pub fn output(&self) -> Option<(Bytes48, Bytes32)> {
         self.output.as_ref().and_then(|(proof, y)| {
-            let proof = p1_from_bytes(proof);
-            let y = fr_from_bytes(y);
+            let proof = bytes48_from_bytes(proof);
+            let y = bytes32_from_bytes(y);
             proof.zip(y)
         })
     }
@@ -121,21 +106,17 @@ pub struct VerifyBlobProof {
 }
 
 impl VerifyBlobProof {
-    fn blob<const N: usize>(&self) -> Option<Blob<N>> {
-        blob_from_bytes(&self.input.blob)
+    fn commitment(&self) -> Option<Bytes48> {
+        bytes48_from_bytes(&self.input.commitment)
     }
 
-    fn commitment(&self) -> Option<Commitment> {
-        p1_from_bytes(&self.input.commitment)
+    fn proof(&self) -> Option<Bytes48> {
+        bytes48_from_bytes(&self.input.proof)
     }
 
-    fn proof(&self) -> Option<Proof> {
-        p1_from_bytes(&self.input.proof)
-    }
-
-    pub fn input<const N: usize>(&self) -> Option<(Blob<N>, Commitment, Proof)> {
-        match (self.blob(), self.commitment(), self.proof()) {
-            (Some(blob), Some(commitment), Some(proof)) => Some((blob, commitment, proof)),
+    pub fn input(&self) -> Option<(Bytes, Bytes48, Bytes48)> {
+        match (self.commitment(), self.proof()) {
+            (Some(commitment), Some(proof)) => Some((self.input.blob.clone(), commitment, proof)),
             _ => None,
         }
     }
@@ -160,23 +141,23 @@ pub struct VerifyProof {
 }
 
 impl VerifyProof {
-    fn commitment(&self) -> Option<Commitment> {
-        p1_from_bytes(&self.input.commitment)
+    fn commitment(&self) -> Option<Bytes48> {
+        bytes48_from_bytes(&self.input.commitment)
     }
 
-    fn z(&self) -> Option<Fr> {
-        fr_from_bytes(&self.input.z)
+    fn z(&self) -> Option<Bytes32> {
+        bytes32_from_bytes(&self.input.z)
     }
 
-    fn y(&self) -> Option<Fr> {
-        fr_from_bytes(&self.input.y)
+    fn y(&self) -> Option<Bytes32> {
+        bytes32_from_bytes(&self.input.y)
     }
 
-    fn proof(&self) -> Option<Proof> {
-        p1_from_bytes(&self.input.proof)
+    fn proof(&self) -> Option<Bytes48> {
+        bytes48_from_bytes(&self.input.proof)
     }
 
-    pub fn input(&self) -> Option<(Commitment, Fr, Fr, Proof)> {
+    pub fn input(&self) -> Option<(Bytes48, Bytes32, Bytes32, Bytes48)> {
         match (self.commitment(), self.z(), self.y(), self.proof()) {
             (Some(commitment), Some(z), Some(y), Some(proof)) => Some((commitment, z, y, proof)),
             _ => None,
@@ -202,36 +183,31 @@ pub struct VerifyBlobProofBatch {
 }
 
 impl VerifyBlobProofBatch {
-    fn blobs<const N: usize>(&self) -> Option<Vec<Blob<N>>> {
-        let blobs: Vec<Blob<N>> = self
-            .input
-            .blobs
-            .iter()
-            .filter_map(blob_from_bytes)
-            .collect();
-        (blobs.len() == self.input.blobs.len()).then_some(blobs)
-    }
-
-    fn commitments(&self) -> Option<Vec<Commitment>> {
-        let commitments: Vec<Commitment> = self
+    fn commitments(&self) -> Option<Vec<Bytes48>> {
+        let commitments: Vec<Bytes48> = self
             .input
             .commitments
             .iter()
-            .filter_map(p1_from_bytes)
+            .filter_map(bytes48_from_bytes)
             .collect();
         (commitments.len() == self.input.commitments.len()).then_some(commitments)
     }
 
-    fn proofs(&self) -> Option<Vec<Proof>> {
-        let proofs: Vec<Proof> = self.input.proofs.iter().filter_map(p1_from_bytes).collect();
+    fn proofs(&self) -> Option<Vec<Bytes48>> {
+        let proofs: Vec<Bytes48> = self
+            .input
+            .proofs
+            .iter()
+            .filter_map(bytes48_from_bytes)
+            .collect();
         (proofs.len() == self.input.proofs.len()).then_some(proofs)
     }
 
-    pub fn input<const N: usize>(&self) -> Option<(Vec<Blob<N>>, Vec<Commitment>, Vec<Proof>)> {
-        match (self.blobs(), self.commitments(), self.proofs()) {
-            (Some(blobs), Some(commitments), Some(proofs)) => (blobs.len() == commitments.len()
+    pub fn input(&self) -> Option<(Vec<Bytes>, Vec<Bytes48>, Vec<Bytes48>)> {
+        match (self.commitments(), self.proofs()) {
+            (Some(commitments), Some(proofs)) => (self.input.blobs.len() == commitments.len()
                 && commitments.len() == proofs.len())
-            .then_some((blobs, commitments, proofs)),
+            .then_some((self.input.blobs.clone(), commitments, proofs)),
             _ => None,
         }
     }

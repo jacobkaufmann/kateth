@@ -626,7 +626,7 @@ impl Compress for P2 {
     const COMPRESSED: usize = Self::BYTES;
 
     fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<(), &'static str> {
-        if buf.as_mut().len() < Self::BYTES {
+        if buf.as_mut().len() < Self::COMPRESSED {
             return Err("insufficient buffer length");
         }
         unsafe {

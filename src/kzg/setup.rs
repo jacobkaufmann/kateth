@@ -345,7 +345,7 @@ mod tests {
                 continue;
             };
             let (expected_proof, expected_y) = expected.unwrap();
-            let mut proof_bytes = [0u8; Proof::BYTES];
+            let mut proof_bytes = [0u8; Proof::COMPRESSED];
             proof.compress(&mut proof_bytes).unwrap();
             assert_eq!(proof_bytes, expected_proof);
             assert_eq!(y.to_be_bytes(), expected_y);
@@ -371,7 +371,7 @@ mod tests {
                 continue;
             };
             let expected = expected.unwrap();
-            let mut proof_bytes = [0u8; Proof::BYTES];
+            let mut proof_bytes = [0u8; Proof::COMPRESSED];
             proof.compress(&mut proof_bytes).unwrap();
             assert_eq!(proof_bytes, expected);
         }
@@ -393,7 +393,7 @@ mod tests {
                 continue;
             };
             let expected = expected.unwrap();
-            let mut commitment_bytes = [0u8; Commitment::BYTES];
+            let mut commitment_bytes = [0u8; Commitment::COMPRESSED];
             commitment.compress(&mut commitment_bytes).unwrap();
             assert_eq!(commitment_bytes, expected);
         }

@@ -22,12 +22,12 @@ pub fn benchmark(c: &mut Criterion) {
     let mut proofs = Vec::with_capacity(blobs.len());
     for blob in &blobs {
         let commitment = kzg.blob_to_commitment(blob).unwrap();
-        let mut bytes = [0u8; Commitment::BYTES];
+        let mut bytes = [0u8; Commitment::COMPRESSED];
         commitment.compress(&mut bytes).unwrap();
         commitments.push(bytes);
 
         let proof = kzg.blob_proof(blob, &bytes).unwrap();
-        let mut bytes = [0u8; Proof::BYTES];
+        let mut bytes = [0u8; Proof::COMPRESSED];
         proof.compress(&mut bytes).unwrap();
         proofs.push(bytes);
     }

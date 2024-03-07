@@ -80,7 +80,7 @@ impl<const N: usize> Blob<N> {
         let degree = (N as u128).to_be_bytes();
 
         let mut comm = [0u8; Commitment::BYTES];
-        let _ = commitment
+        commitment
             .compress(comm.as_mut_slice())
             .expect("sufficient buffer len");
 

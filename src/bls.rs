@@ -53,15 +53,25 @@ impl From<ECGroupError> for Error {
 ///
 /// github.com/zkcrypto/pairing/blob/34aa52b0f7bef705917252ea63e5a13fa01af551/src/bls12_381/README.md
 pub trait Compress {
-    fn compress(&self, buf: impl AsMut<[u8]>) -> Result<usize, &'static str>;
+    /// The length in bytes of the compressed representation of `self`.
+    const COMPRESSED: usize;
+
+    /// Compresses `self` into `buf`.
+    ///
+    /// # Errors
+    ///
+    /// Compression will fail if the length of `buf` is less than `Self::COMPRESSED`.
+    fn compress(&self, buf: impl AsMut<[u8]>) -> Result<(), &'static str>;
 }
 
 /// A data structure that can be deserialized from the compressed format defined by Zcash.
 ///
 /// github.com/zkcrypto/pairing/blob/34aa52b0f7bef705917252ea63e5a13fa01af551/src/bls12_381/README.md
 pub trait Decompress: Sized {
+    /// The error that can occur upon decompression.
     type Error;
 
+    /// Decompresses `compressed` into `Self`.
     fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, Self::Error>;
 }
 
@@ -493,14 +503,16 @@ impl Neg for P1 {
 }
 
 impl Compress for P1 {
-    fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<usize, &'static str> {
-        if buf.as_mut().len() < Self::BYTES {
+    const COMPRESSED: usize = Self::BYTES;
+
+    fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<(), &'static str> {
+        if buf.as_mut().len() < Self::COMPRESSED {
             return Err("insufficient buffer length");
         }
         unsafe {
             blst_p1_compress(buf.as_mut().as_mut_ptr(), &self.element);
         }
-        Ok(Self::BYTES)
+        Ok(())
     }
 }
 
@@ -611,14 +623,16 @@ impl Mul<Fr> for P2 {
 }
 
 impl Compress for P2 {
-    fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<usize, &'static str> {
+    const COMPRESSED: usize = Self::BYTES;
+
+    fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<(), &'static str> {
         if buf.as_mut().len() < Self::BYTES {
             return Err("insufficient buffer length");
         }
         unsafe {
             blst_p2_compress(buf.as_mut().as_mut_ptr(), &self.element);
         }
-        Ok(Self::BYTES)
+        Ok(())
     }
 }
 

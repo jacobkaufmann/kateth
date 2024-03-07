@@ -1,5 +1,5 @@
 use crate::{
-    bls::{FiniteFieldError, Fr, P1},
+    bls::{Compress, FiniteFieldError, Fr, P1},
     kzg::{Commitment, Polynomial, Proof, Setup},
 };
 
@@ -69,7 +69,10 @@ impl<const N: usize> Blob<N> {
         const DOMAIN: &[u8; 16] = b"FSBLOBVERIFY_V1_";
         let degree = (N as u128).to_be_bytes();
 
-        let comm = commitment.serialize();
+        let mut comm = [0u8; Commitment::BYTES];
+        let _ = commitment
+            .compress(comm.as_mut_slice())
+            .expect("sufficient buffer len");
 
         let mut data = Vec::with_capacity(8 + 16 + Commitment::BYTES + Self::BYTES);
         data.extend_from_slice(DOMAIN);

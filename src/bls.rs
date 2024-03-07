@@ -10,11 +10,12 @@ use blst::{
     blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
     blst_fr_from_uint64, blst_fr_lshift, blst_fr_mul, blst_fr_rshift, blst_fr_sub,
     blst_lendian_from_scalar, blst_miller_loop, blst_p1, blst_p1_add, blst_p1_affine,
-    blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_compress, blst_p1_deserialize, blst_p1_from_affine,
-    blst_p1_mult, blst_p1_to_affine, blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2,
-    blst_p2_deserialize, blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_scalar,
-    blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr, blst_sha256,
-    blst_uint64_from_fr, p1_affines, BLS12_381_G2, BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
+    blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_compress, blst_p1_from_affine, blst_p1_mult,
+    blst_p1_to_affine, blst_p1_uncompress, blst_p2, blst_p2_add, blst_p2_affine,
+    blst_p2_affine_in_g2, blst_p2_compress, blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine,
+    blst_p2_uncompress, blst_scalar, blst_scalar_fr_check, blst_scalar_from_bendian,
+    blst_scalar_from_fr, blst_sha256, blst_uint64_from_fr, p1_affines, BLS12_381_G2,
+    BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -52,14 +53,16 @@ impl From<ECGroupError> for Error {
 ///
 /// github.com/zkcrypto/pairing/blob/34aa52b0f7bef705917252ea63e5a13fa01af551/src/bls12_381/README.md
 pub trait Compress {
-    fn compress(&self, buf: impl AsMut<[u8]>) -> Result<usize, ()>;
+    fn compress(&self, buf: impl AsMut<[u8]>) -> Result<usize, &'static str>;
 }
 
 /// A data structure that can be deserialized from the compressed format defined by Zcash.
 ///
 /// github.com/zkcrypto/pairing/blob/34aa52b0f7bef705917252ea63e5a13fa01af551/src/bls12_381/README.md
 pub trait Decompress: Sized {
-    fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, ()>;
+    type Error;
+
+    fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, Self::Error>;
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -369,37 +372,6 @@ impl P1 {
     pub const BITS: usize = 384;
     pub const BYTES: usize = Self::BITS / 8;
 
-    pub fn deserialize(bytes: impl AsRef<[u8; Self::BYTES]>) -> Result<Self, ECGroupError> {
-        let mut affine = MaybeUninit::<blst_p1_affine>::uninit();
-        let mut out = MaybeUninit::<blst_p1>::uninit();
-        unsafe {
-            // NOTE: deserialize performs a curve check but not a subgroup check. if that changes,
-            // then we should encounter `unreachable` for `BLST_POINT_NOT_IN_GROUP` in tests.
-            match blst_p1_deserialize(affine.as_mut_ptr(), bytes.as_ref().as_ptr()) {
-                BLST_ERROR::BLST_SUCCESS => {}
-                BLST_ERROR::BLST_BAD_ENCODING => return Err(ECGroupError::InvalidEncoding),
-                BLST_ERROR::BLST_POINT_NOT_ON_CURVE => return Err(ECGroupError::NotOnCurve),
-                other => unreachable!("{other:?}"),
-            }
-            if !blst_p1_affine_in_g1(affine.as_ptr()) {
-                return Err(ECGroupError::NotInGroup);
-            }
-
-            blst_p1_from_affine(out.as_mut_ptr(), affine.as_ptr());
-            Ok(Self {
-                element: out.assume_init(),
-            })
-        }
-    }
-
-    pub fn serialize(&self) -> [u8; Self::BYTES] {
-        let mut out = [0; Self::BYTES];
-        unsafe {
-            blst_p1_compress(out.as_mut_ptr(), &self.element);
-        }
-        out
-    }
-
     pub fn lincomb(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
         let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
         let mut lincomb = Self::INF;
@@ -520,6 +492,45 @@ impl Neg for P1 {
     }
 }
 
+impl Compress for P1 {
+    fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<usize, &'static str> {
+        if buf.as_mut().len() < Self::BYTES {
+            return Err("insufficient buffer length");
+        }
+        unsafe {
+            blst_p1_compress(buf.as_mut().as_mut_ptr(), &self.element);
+        }
+        Ok(Self::BYTES)
+    }
+}
+
+impl Decompress for P1 {
+    type Error = ECGroupError;
+
+    fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, Self::Error> {
+        let mut affine = MaybeUninit::<blst_p1_affine>::uninit();
+        let mut out = MaybeUninit::<blst_p1>::uninit();
+        unsafe {
+            // NOTE: uncompress performs a curve check but not a subgroup check. if that changes,
+            // then we should encounter `unreachable` for `BLST_POINT_NOT_IN_GROUP` in tests.
+            match blst_p1_uncompress(affine.as_mut_ptr(), compressed.as_ref().as_ptr()) {
+                BLST_ERROR::BLST_SUCCESS => {}
+                BLST_ERROR::BLST_BAD_ENCODING => return Err(ECGroupError::InvalidEncoding),
+                BLST_ERROR::BLST_POINT_NOT_ON_CURVE => return Err(ECGroupError::NotOnCurve),
+                other => unreachable!("{other:?}"),
+            }
+            if !blst_p1_affine_in_g1(affine.as_ptr()) {
+                return Err(ECGroupError::NotInGroup);
+            }
+
+            blst_p1_from_affine(out.as_mut_ptr(), affine.as_ptr());
+            Ok(Self {
+                element: out.assume_init(),
+            })
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct P2 {
     element: blst_p2,
@@ -528,29 +539,6 @@ pub struct P2 {
 impl P2 {
     pub const BITS: usize = 768;
     pub const BYTES: usize = Self::BITS / 8;
-
-    pub fn deserialize(bytes: impl AsRef<[u8; Self::BYTES]>) -> Result<Self, ECGroupError> {
-        let mut affine = MaybeUninit::<blst_p2_affine>::uninit();
-        let mut out = MaybeUninit::<blst_p2>::uninit();
-        unsafe {
-            // NOTE: deserialize performs a curve check but not a subgroup check. if that changes,
-            // then we should encounter `unreachable` for `BLST_POINT_NOT_IN_GROUP` in tests.
-            match blst_p2_deserialize(affine.as_mut_ptr(), bytes.as_ref().as_ptr()) {
-                BLST_ERROR::BLST_SUCCESS => {}
-                BLST_ERROR::BLST_BAD_ENCODING => return Err(ECGroupError::InvalidEncoding),
-                BLST_ERROR::BLST_POINT_NOT_ON_CURVE => return Err(ECGroupError::NotOnCurve),
-                other => unreachable!("{other:?}"),
-            }
-            if !blst_p2_affine_in_g2(affine.as_ptr()) {
-                return Err(ECGroupError::NotInGroup);
-            }
-
-            blst_p2_from_affine(out.as_mut_ptr(), affine.as_ptr());
-            Ok(Self {
-                element: out.assume_init(),
-            })
-        }
-    }
 
     // TODO: make available as `const`
     pub fn generator() -> Self {
@@ -619,6 +607,45 @@ impl Mul<Fr> for P2 {
 
     fn mul(self, rhs: Fr) -> Self::Output {
         self * &rhs
+    }
+}
+
+impl Compress for P2 {
+    fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<usize, &'static str> {
+        if buf.as_mut().len() < Self::BYTES {
+            return Err("insufficient buffer length");
+        }
+        unsafe {
+            blst_p2_compress(buf.as_mut().as_mut_ptr(), &self.element);
+        }
+        Ok(Self::BYTES)
+    }
+}
+
+impl Decompress for P2 {
+    type Error = ECGroupError;
+
+    fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, Self::Error> {
+        let mut affine = MaybeUninit::<blst_p2_affine>::uninit();
+        let mut out = MaybeUninit::<blst_p2>::uninit();
+        unsafe {
+            // NOTE: uncompress performs a curve check but not a subgroup check. if that changes,
+            // then we should encounter `unreachable` for `BLST_POINT_NOT_IN_GROUP` in tests.
+            match blst_p2_uncompress(affine.as_mut_ptr(), compressed.as_ref().as_ptr()) {
+                BLST_ERROR::BLST_SUCCESS => {}
+                BLST_ERROR::BLST_BAD_ENCODING => return Err(ECGroupError::InvalidEncoding),
+                BLST_ERROR::BLST_POINT_NOT_ON_CURVE => return Err(ECGroupError::NotOnCurve),
+                other => unreachable!("{other:?}"),
+            }
+            if !blst_p2_affine_in_g2(affine.as_ptr()) {
+                return Err(ECGroupError::NotInGroup);
+            }
+
+            blst_p2_from_affine(out.as_mut_ptr(), affine.as_ptr());
+            Ok(Self {
+                element: out.assume_init(),
+            })
+        }
     }
 }
 

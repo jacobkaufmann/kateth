@@ -7,7 +7,7 @@ use std::{
 use super::{Commitment, Polynomial, Proof};
 use crate::{
     blob::Blob,
-    bls::{self, ECGroupError, Error as BlsError, Fr, P1, P2},
+    bls::{self, Decompress, ECGroupError, Error as BlsError, Fr, P1, P2},
     math,
 };
 
@@ -60,7 +60,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             // TODO: skip unnecessary allocation
             let point = FixedBytes::<48>::from_slice(point);
             let point =
-                P1::deserialize(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
+                P1::decompress(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
             g1_lagrange[i] = point;
         }
         let g1_lagrange_brp = math::bit_reversal_permutation_boxed_array(g1_lagrange.as_slice());
@@ -75,7 +75,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             // TODO: skip unnecessary allocation
             let point = FixedBytes::<96>::from_slice(point);
             let point =
-                P2::deserialize(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
+                P2::decompress(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
             g2_monomial[i] = point;
         }
 
@@ -196,6 +196,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
 
 #[cfg(test)]
 mod tests {
+    use self::bls::Decompress;
+
     use super::*;
 
     use crate::blob::Blob;
@@ -287,7 +289,7 @@ mod tests {
                 return Err(());
             }
             let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
-            let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
+            let commitment = Commitment::decompress(commitment).map_err(|_| ())?;
             Ok(Self { blob, commitment })
         }
     }
@@ -319,7 +321,7 @@ mod tests {
                 return Err(());
             }
             let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
-            let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
+            let commitment = Commitment::decompress(commitment).map_err(|_| ())?;
 
             let z = Fr::from_be_slice(unchecked.z).map_err(|_| ())?;
             let y = Fr::from_be_slice(unchecked.y).map_err(|_| ())?;
@@ -328,7 +330,7 @@ mod tests {
                 return Err(());
             }
             let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&unchecked.proof);
-            let proof = Proof::deserialize(proof).map_err(|_| ())?;
+            let proof = Proof::decompress(proof).map_err(|_| ())?;
 
             Ok(Self {
                 commitment,
@@ -365,12 +367,12 @@ mod tests {
                 return Err(());
             }
             let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
-            let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
+            let commitment = Commitment::decompress(commitment).map_err(|_| ())?;
             if unchecked.proof.len() != Proof::BYTES {
                 return Err(());
             }
             let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&unchecked.proof);
-            let proof = Proof::deserialize(proof).map_err(|_| ())?;
+            let proof = Proof::decompress(proof).map_err(|_| ())?;
             Ok(Self {
                 blob,
                 commitment,
@@ -420,7 +422,7 @@ mod tests {
                     return Err(());
                 }
                 let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&commitment);
-                let commitment = Commitment::deserialize(commitment).map_err(|_| ())?;
+                let commitment = Commitment::decompress(commitment).map_err(|_| ())?;
                 commitments.push(commitment);
             }
 
@@ -430,7 +432,7 @@ mod tests {
                     return Err(());
                 }
                 let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&proof);
-                let proof = Proof::deserialize(proof).map_err(|_| ())?;
+                let proof = Proof::decompress(proof).map_err(|_| ())?;
                 proofs.push(proof);
             }
 
@@ -478,7 +480,7 @@ mod tests {
                 Ok(input) => {
                     let (proof, eval) = case.output.unwrap();
                     let expected_eval = Fr::from_be_bytes(eval).unwrap();
-                    let expected_proof = P1::deserialize(proof).unwrap();
+                    let expected_proof = P1::decompress(proof).unwrap();
 
                     let poly = Polynomial(&input.blob.elements);
                     let eval = poly.evaluate(input.z, &setup);
@@ -508,7 +510,7 @@ mod tests {
             match ComputeBlobKzgProofInput::from_unchecked(case.input) {
                 Ok(input) => {
                     let proof = case.output.unwrap();
-                    let proof = P1::deserialize(proof).unwrap();
+                    let proof = P1::decompress(proof).unwrap();
                     let expected_proof = Proof::from(proof);
 
                     let proof = setup.blob_proof(&input.blob, &input.commitment);
@@ -537,7 +539,7 @@ mod tests {
             match BlobToCommitmentInput::from_unchecked(case.input) {
                 Ok(input) => {
                     let comm = case.output.unwrap();
-                    let comm = P1::deserialize(comm).unwrap();
+                    let comm = P1::decompress(comm).unwrap();
                     let expected_comm = Commitment::from(comm);
 
                     let comm = input.blob.commitment(&setup);

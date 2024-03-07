@@ -7,7 +7,7 @@ use std::{
 use super::{Bytes32, Bytes48, Commitment, Error, Polynomial, Proof};
 use crate::{
     blob::{Blob, Error as BlobError},
-    bls::{self, ECGroupError, Error as BlsError, Fr, P1, P2},
+    bls::{self, Decompress, ECGroupError, Error as BlsError, Fr, P1, P2},
     math,
 };
 
@@ -60,7 +60,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             // TODO: skip unnecessary allocation
             let point = FixedBytes::<48>::from_slice(point);
             let point =
-                P1::deserialize(&point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
+                P1::decompress(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
             g1_lagrange[i] = point;
         }
         let g1_lagrange_brp = math::bit_reversal_permutation_boxed_array(g1_lagrange.as_slice());
@@ -75,7 +75,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             // TODO: skip unnecessary allocation
             let point = FixedBytes::<96>::from_slice(point);
             let point =
-                P2::deserialize(&point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
+                P2::decompress(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
             g2_monomial[i] = point;
         }
 
@@ -108,8 +108,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         point: &Bytes32,
         eval: &Bytes32,
     ) -> Result<bool, Error> {
-        let proof = Proof::deserialize(proof).map_err(|err| Error::from(BlsError::ECGroup(err)))?;
-        let commitment = Commitment::deserialize(commitment)
+        let proof = Proof::decompress(proof).map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+        let commitment = Commitment::decompress(commitment)
             .map_err(|err| Error::from(BlsError::ECGroup(err)))?;
         let point =
             Fr::from_be_slice(point).map_err(|err| Error::from(BlsError::FiniteField(err)))?;
@@ -184,7 +184,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
 
     pub fn blob_proof(&self, blob: impl AsRef<[u8]>, commitment: &Bytes48) -> Result<Proof, Error> {
         let blob: Blob<G1> = Blob::from_slice(blob).map_err(Error::from)?;
-        let commitment = Commitment::deserialize(commitment)
+        let commitment = Commitment::decompress(commitment)
             .map_err(|err| Error::from(BlsError::ECGroup(err)))?;
         let proof = self.blob_proof_inner(&blob, &commitment);
         Ok(proof)
@@ -220,9 +220,9 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         proof: &Bytes48,
     ) -> Result<bool, Error> {
         let blob: Blob<G1> = Blob::from_slice(blob).map_err(Error::from)?;
-        let commitment = Commitment::deserialize(commitment)
+        let commitment = Commitment::decompress(commitment)
             .map_err(|err| Error::from(BlsError::ECGroup(err)))?;
-        let proof = Proof::deserialize(proof).map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+        let proof = Proof::decompress(proof).map_err(|err| Error::from(BlsError::ECGroup(err)))?;
 
         let verified = self.verify_blob_proof_inner(&blob, &commitment, &proof);
         Ok(verified)
@@ -271,12 +271,11 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let commitments: Result<Vec<Commitment>, _> = commitments
             .as_ref()
             .iter()
-            .map(Commitment::deserialize)
+            .map(Commitment::decompress)
             .collect();
         let commitments = commitments.map_err(|err| Error::from(BlsError::ECGroup(err)))?;
 
-        let proofs: Result<Vec<Proof>, _> =
-            proofs.as_ref().iter().map(Proof::deserialize).collect();
+        let proofs: Result<Vec<Proof>, _> = proofs.as_ref().iter().map(Proof::decompress).collect();
         let proofs = proofs.map_err(|err| Error::from(BlsError::ECGroup(err)))?;
 
         let verified = self.verify_blob_proof_batch_inner(blobs, commitments, proofs);
@@ -288,9 +287,12 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
 mod tests {
     use super::*;
 
-    use crate::kzg::spec::{
-        BlobToCommitment, ComputeBlobProof, ComputeProof, VerifyBlobProof, VerifyBlobProofBatch,
-        VerifyProof,
+    use crate::{
+        bls::Compress,
+        kzg::spec::{
+            BlobToCommitment, ComputeBlobProof, ComputeProof, VerifyBlobProof,
+            VerifyBlobProofBatch, VerifyProof,
+        },
     };
 
     use std::{
@@ -343,7 +345,9 @@ mod tests {
                 continue;
             };
             let (expected_proof, expected_y) = expected.unwrap();
-            assert_eq!(proof.serialize(), expected_proof);
+            let mut proof_bytes = [0u8; Proof::COMPRESSED];
+            proof.compress(&mut proof_bytes).unwrap();
+            assert_eq!(proof_bytes, expected_proof);
             assert_eq!(y.to_be_bytes(), expected_y);
         }
     }
@@ -367,7 +371,9 @@ mod tests {
                 continue;
             };
             let expected = expected.unwrap();
-            assert_eq!(proof.serialize(), expected);
+            let mut proof_bytes = [0u8; Proof::COMPRESSED];
+            proof.compress(&mut proof_bytes).unwrap();
+            assert_eq!(proof_bytes, expected);
         }
     }
 
@@ -387,7 +393,9 @@ mod tests {
                 continue;
             };
             let expected = expected.unwrap();
-            assert_eq!(commitment.serialize(), expected);
+            let mut commitment_bytes = [0u8; Commitment::COMPRESSED];
+            commitment.compress(&mut commitment_bytes).unwrap();
+            assert_eq!(commitment_bytes, expected);
         }
     }
 

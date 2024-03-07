@@ -4,9 +4,9 @@ use std::{
     path::Path,
 };
 
-use super::{Commitment, Polynomial, Proof};
+use super::{Bytes32, Bytes48, Commitment, Error, Polynomial, Proof};
 use crate::{
-    blob::Blob,
+    blob::{Blob, Error as BlobError},
     bls::{self, Decompress, ECGroupError, Error as BlsError, Fr, P1, P2},
     math,
 };
@@ -89,7 +89,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         })
     }
 
-    pub fn verify_proof(
+    fn verify_proof_inner(
         &self,
         proof: &Proof,
         commitment: &Commitment,
@@ -101,7 +101,26 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         bls::verify_pairings(pairing1, pairing2)
     }
 
-    pub fn verify_proof_batch(
+    pub fn verify_proof(
+        &self,
+        proof: &Bytes48,
+        commitment: &Bytes48,
+        point: &Bytes32,
+        eval: &Bytes32,
+    ) -> Result<bool, Error> {
+        let proof = Proof::decompress(proof).map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+        let commitment = Commitment::decompress(commitment)
+            .map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+        let point =
+            Fr::from_be_slice(point).map_err(|err| Error::from(BlsError::FiniteField(err)))?;
+        let eval =
+            Fr::from_be_slice(eval).map_err(|err| Error::from(BlsError::FiniteField(err)))?;
+
+        let verified = self.verify_proof_inner(&proof, &commitment, &point, &eval);
+        Ok(verified)
+    }
+
+    fn verify_proof_batch(
         &self,
         proofs: impl AsRef<[Proof]>,
         commitments: impl AsRef<[Commitment]>,
@@ -149,15 +168,40 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         )
     }
 
-    pub fn blob_to_commitment(&self, blob: &Blob<G1>) -> Commitment {
+    fn blob_to_commitment_inner(&self, blob: &Blob<G1>) -> Commitment {
         blob.commitment(self)
     }
 
-    pub fn blob_proof(&self, blob: &Blob<G1>, commitment: &Commitment) -> Proof {
+    pub fn blob_to_commitment(&self, blob: impl AsRef<[u8]>) -> Result<Commitment, BlobError> {
+        let blob = Blob::<G1>::from_slice(blob)?;
+        let commitment = self.blob_to_commitment_inner(&blob);
+        Ok(commitment)
+    }
+
+    fn blob_proof_inner(&self, blob: &Blob<G1>, commitment: &Commitment) -> Proof {
         blob.proof(commitment, self)
     }
 
-    pub fn verify_blob_proof(
+    pub fn blob_proof(&self, blob: impl AsRef<[u8]>, commitment: &Bytes48) -> Result<Proof, Error> {
+        let blob: Blob<G1> = Blob::from_slice(blob).map_err(Error::from)?;
+        let commitment = Commitment::decompress(commitment)
+            .map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+        let proof = self.blob_proof_inner(&blob, &commitment);
+        Ok(proof)
+    }
+
+    pub fn proof(&self, blob: impl AsRef<[u8]>, point: &Bytes32) -> Result<(Proof, Fr), Error> {
+        let blob: Blob<G1> = Blob::from_slice(blob).map_err(Error::from)?;
+        let point =
+            Fr::from_be_slice(point).map_err(|err| Error::from(BlsError::FiniteField(err)))?;
+
+        let poly = Polynomial(&blob.elements);
+        let (eval, proof) = poly.prove(point, self);
+
+        Ok((proof, eval))
+    }
+
+    fn verify_blob_proof_inner(
         &self,
         blob: &Blob<G1>,
         commitment: &Commitment,
@@ -166,10 +210,25 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         let poly = Polynomial(&blob.elements);
         let challenge = blob.challenge(commitment);
         let eval = poly.evaluate(challenge, self);
-        self.verify_proof(proof, commitment, &challenge, &eval)
+        self.verify_proof_inner(proof, commitment, &challenge, &eval)
     }
 
-    pub fn verify_blob_proof_batch(
+    pub fn verify_blob_proof(
+        &self,
+        blob: impl AsRef<[u8]>,
+        commitment: &Bytes48,
+        proof: &Bytes48,
+    ) -> Result<bool, Error> {
+        let blob: Blob<G1> = Blob::from_slice(blob).map_err(Error::from)?;
+        let commitment = Commitment::decompress(commitment)
+            .map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+        let proof = Proof::decompress(proof).map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+
+        let verified = self.verify_blob_proof_inner(&blob, &commitment, &proof);
+        Ok(verified)
+    }
+
+    fn verify_blob_proof_batch_inner(
         &self,
         blobs: impl AsRef<[Blob<G1>]>,
         commitments: impl AsRef<[Commitment]>,
@@ -192,15 +251,47 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
 
         self.verify_proof_batch(proofs, commitments, challenges, evaluations)
     }
+
+    pub fn verify_blob_proof_batch<B>(
+        &self,
+        blobs: impl AsRef<[B]>,
+        commitments: impl AsRef<[Bytes48]>,
+        proofs: impl AsRef<[Bytes48]>,
+    ) -> Result<bool, Error>
+    where
+        B: AsRef<[u8]>,
+    {
+        assert_eq!(blobs.as_ref().len(), commitments.as_ref().len());
+        assert_eq!(commitments.as_ref().len(), proofs.as_ref().len());
+
+        let blobs: Result<Vec<Blob<G1>>, _> =
+            blobs.as_ref().iter().map(Blob::<G1>::from_slice).collect();
+        let blobs = blobs.map_err(Error::from)?;
+
+        let commitments: Result<Vec<Commitment>, _> = commitments
+            .as_ref()
+            .iter()
+            .map(Commitment::decompress)
+            .collect();
+        let commitments = commitments.map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+
+        let proofs: Result<Vec<Proof>, _> =
+            proofs.as_ref().iter().map(Proof::decompress).collect();
+        let proofs = proofs.map_err(|err| Error::from(BlsError::ECGroup(err)))?;
+
+        let verified = self.verify_blob_proof_batch_inner(blobs, commitments, proofs);
+        Ok(verified)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use self::bls::Decompress;
-
     use super::*;
 
-    use crate::blob::Blob;
+    use crate::{bls::Compress, kzg::spec::{
+        BlobToCommitment, ComputeBlobProof, ComputeProof, VerifyBlobProof, VerifyBlobProofBatch,
+        VerifyProof,
+    }};
 
     use std::{
         fs::{self, File},
@@ -209,240 +300,8 @@ mod tests {
         sync::Arc,
     };
 
-    use crate::bls::P1;
-
-    use alloy_primitives::{Bytes, FixedBytes};
-
     const FIELD_ELEMENTS_PER_BLOB: usize = 4096;
     const SETUP_G2_LEN: usize = 65;
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct ComputeKzgProofInputUnchecked {
-        pub blob: Bytes,
-        pub z: Bytes,
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct ComputeKzgProofUnchecked {
-        input: ComputeKzgProofInputUnchecked,
-        output: Option<(FixedBytes<{ Proof::BYTES }>, FixedBytes<{ Fr::BYTES }>)>,
-    }
-
-    struct ComputeKzgProofInput {
-        pub blob: Blob<FIELD_ELEMENTS_PER_BLOB>,
-        pub z: Fr,
-    }
-
-    impl ComputeKzgProofInput {
-        pub fn from_unchecked(unchecked: ComputeKzgProofInputUnchecked) -> Result<Self, ()> {
-            let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
-            match Fr::from_be_slice(unchecked.z) {
-                Ok(z) => Ok(ComputeKzgProofInput { blob, z }),
-                Err(_) => Err(()),
-            }
-        }
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct BlobToCommitmentInputUnchecked {
-        pub blob: Bytes,
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct BlobToCommitmentUnchecked {
-        input: BlobToCommitmentInputUnchecked,
-        output: Option<FixedBytes<{ Commitment::BYTES }>>,
-    }
-
-    struct BlobToCommitmentInput {
-        pub blob: Blob<FIELD_ELEMENTS_PER_BLOB>,
-    }
-
-    impl BlobToCommitmentInput {
-        pub fn from_unchecked(unchecked: BlobToCommitmentInputUnchecked) -> Result<Self, ()> {
-            let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
-            Ok(Self { blob })
-        }
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct ComputeBlobKzgProofInputUnchecked {
-        blob: Bytes,
-        commitment: Bytes,
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct ComputeBlobKzgProofUnchecked {
-        input: ComputeBlobKzgProofInputUnchecked,
-        output: Option<FixedBytes<{ Proof::BYTES }>>,
-    }
-
-    struct ComputeBlobKzgProofInput {
-        blob: Blob<FIELD_ELEMENTS_PER_BLOB>,
-        commitment: Commitment,
-    }
-
-    impl ComputeBlobKzgProofInput {
-        pub fn from_unchecked(unchecked: ComputeBlobKzgProofInputUnchecked) -> Result<Self, ()> {
-            let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
-            if unchecked.commitment.len() != Commitment::BYTES {
-                return Err(());
-            }
-            let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
-            let commitment = Commitment::decompress(commitment).map_err(|_| ())?;
-            Ok(Self { blob, commitment })
-        }
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct VerifyKzgProofUnchecked {
-        input: VerifyKzgProofInputUnchecked,
-        output: Option<bool>,
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct VerifyKzgProofInputUnchecked {
-        pub commitment: Bytes,
-        pub z: Bytes,
-        pub y: Bytes,
-        pub proof: Bytes,
-    }
-
-    struct VerifyKzgProofInput {
-        pub commitment: Commitment,
-        pub z: Fr,
-        pub y: Fr,
-        pub proof: Proof,
-    }
-
-    impl VerifyKzgProofInput {
-        pub fn from_unchecked(unchecked: VerifyKzgProofInputUnchecked) -> Result<Self, ()> {
-            if unchecked.commitment.len() != Commitment::BYTES {
-                return Err(());
-            }
-            let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
-            let commitment = Commitment::decompress(commitment).map_err(|_| ())?;
-
-            let z = Fr::from_be_slice(unchecked.z).map_err(|_| ())?;
-            let y = Fr::from_be_slice(unchecked.y).map_err(|_| ())?;
-
-            if unchecked.proof.len() != Proof::BYTES {
-                return Err(());
-            }
-            let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&unchecked.proof);
-            let proof = Proof::decompress(proof).map_err(|_| ())?;
-
-            Ok(Self {
-                commitment,
-                z,
-                y,
-                proof,
-            })
-        }
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct VerifyBlobKzgProofUnchecked {
-        input: VerifyBlobKzgProofInputUnchecked,
-        output: Option<bool>,
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct VerifyBlobKzgProofInputUnchecked {
-        pub blob: Bytes,
-        pub commitment: Bytes,
-        pub proof: Bytes,
-    }
-
-    struct VerifyBlobKzgProofInput {
-        pub blob: Blob<FIELD_ELEMENTS_PER_BLOB>,
-        pub commitment: Commitment,
-        pub proof: Proof,
-    }
-
-    impl VerifyBlobKzgProofInput {
-        pub fn from_unchecked(unchecked: VerifyBlobKzgProofInputUnchecked) -> Result<Self, ()> {
-            let blob = Blob::from_slice(unchecked.blob).map_err(|_| ())?;
-            if unchecked.commitment.len() != Commitment::BYTES {
-                return Err(());
-            }
-            let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&unchecked.commitment);
-            let commitment = Commitment::decompress(commitment).map_err(|_| ())?;
-            if unchecked.proof.len() != Proof::BYTES {
-                return Err(());
-            }
-            let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&unchecked.proof);
-            let proof = Proof::decompress(proof).map_err(|_| ())?;
-            Ok(Self {
-                blob,
-                commitment,
-                proof,
-            })
-        }
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct VerifyBlobKzgProofBatchInputUnchecked {
-        blobs: Vec<Bytes>,
-        commitments: Vec<Bytes>,
-        proofs: Vec<Bytes>,
-    }
-
-    #[derive(serde::Deserialize, serde::Serialize)]
-    struct VerifyBlobKzgProofBatchUnchecked {
-        input: VerifyBlobKzgProofBatchInputUnchecked,
-        output: Option<bool>,
-    }
-
-    struct VerifyBlobKzgProofBatchInput {
-        blobs: Vec<Blob<FIELD_ELEMENTS_PER_BLOB>>,
-        commitments: Vec<Commitment>,
-        proofs: Vec<Proof>,
-    }
-
-    impl VerifyBlobKzgProofBatchInput {
-        pub fn from_unchecked(
-            unchecked: VerifyBlobKzgProofBatchInputUnchecked,
-        ) -> Result<Self, ()> {
-            if unchecked.blobs.len() != unchecked.commitments.len()
-                || unchecked.blobs.len() != unchecked.proofs.len()
-            {
-                return Err(());
-            }
-
-            let mut blobs = vec![];
-            for blob in unchecked.blobs {
-                let blob = Blob::from_slice(blob).map_err(|_| ())?;
-                blobs.push(blob);
-            }
-
-            let mut commitments = vec![];
-            for commitment in unchecked.commitments {
-                if commitment.len() != Commitment::BYTES {
-                    return Err(());
-                }
-                let commitment = FixedBytes::<{ Commitment::BYTES }>::from_slice(&commitment);
-                let commitment = Commitment::decompress(commitment).map_err(|_| ())?;
-                commitments.push(commitment);
-            }
-
-            let mut proofs = vec![];
-            for proof in unchecked.proofs {
-                if proof.len() != Proof::BYTES {
-                    return Err(());
-                }
-                let proof = FixedBytes::<{ Proof::BYTES }>::from_slice(&proof);
-                let proof = Proof::decompress(proof).map_err(|_| ())?;
-                proofs.push(proof);
-            }
-
-            Ok(Self {
-                blobs,
-                commitments,
-                proofs,
-            })
-        }
-    }
 
     fn setup() -> Setup<FIELD_ELEMENTS_PER_BLOB, SETUP_G2_LEN> {
         let path = format!("{}/trusted_setup_4096.json", env!("CARGO_MANIFEST_DIR"));
@@ -470,29 +329,24 @@ mod tests {
         let setup = setup();
         let setup = Arc::new(setup);
 
-        let files = consensus_spec_test_files("compute_kzg_proof");
-
-        for file in files {
+        for file in consensus_spec_test_files("compute_kzg_proof") {
             let reader = BufReader::new(file);
-            let case: ComputeKzgProofUnchecked = serde_yaml::from_reader(reader).unwrap();
+            let case: ComputeProof = serde_yaml::from_reader(reader).unwrap();
 
-            match ComputeKzgProofInput::from_unchecked(case.input) {
-                Ok(input) => {
-                    let (proof, eval) = case.output.unwrap();
-                    let expected_eval = Fr::from_be_bytes(eval).unwrap();
-                    let expected_proof = P1::decompress(proof).unwrap();
-
-                    let poly = Polynomial(&input.blob.elements);
-                    let eval = poly.evaluate(input.z, &setup);
-                    let (_eval, proof) = poly.prove(input.z, &setup);
-
-                    assert_eq!(eval, expected_eval);
-                    assert_eq!(proof, expected_proof);
-                }
-                Err(_) => {
-                    assert!(case.output.is_none());
-                }
-            }
+            let expected = case.output();
+            let Some((blob, z)) = case.input() else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let Ok((proof, y)) = setup.proof(blob, &z) else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let (expected_proof, expected_y) = expected.unwrap();
+            let mut proof_bytes = [0u8; Proof::BYTES];
+            proof.compress(&mut proof_bytes).unwrap();
+            assert_eq!(proof_bytes, expected_proof);
+            assert_eq!(y.to_be_bytes(), expected_y);
         }
     }
 
@@ -501,26 +355,23 @@ mod tests {
         let setup = setup();
         let setup = Arc::new(setup);
 
-        let files = consensus_spec_test_files("compute_blob_kzg_proof");
-
-        for file in files {
+        for file in consensus_spec_test_files("compute_blob_kzg_proof") {
             let reader = BufReader::new(file);
-            let case: ComputeBlobKzgProofUnchecked = serde_yaml::from_reader(reader).unwrap();
+            let case: ComputeBlobProof = serde_yaml::from_reader(reader).unwrap();
 
-            match ComputeBlobKzgProofInput::from_unchecked(case.input) {
-                Ok(input) => {
-                    let proof = case.output.unwrap();
-                    let proof = P1::decompress(proof).unwrap();
-                    let expected_proof = Proof::from(proof);
-
-                    let proof = setup.blob_proof(&input.blob, &input.commitment);
-
-                    assert_eq!(proof, expected_proof);
-                }
-                Err(_) => {
-                    assert!(case.output.is_none());
-                }
-            }
+            let expected = case.output();
+            let Some((blob, commitment)) = case.input() else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let Ok(proof) = setup.blob_proof(&blob, &commitment) else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let expected = expected.unwrap();
+            let mut proof_bytes = [0u8; Proof::BYTES];
+            proof.compress(&mut proof_bytes).unwrap();
+            assert_eq!(proof_bytes, expected);
         }
     }
 
@@ -530,26 +381,19 @@ mod tests {
         let setup = setup();
         let setup = Arc::new(setup);
 
-        let files = consensus_spec_test_files("blob_to_kzg_commitment");
-
-        for file in files {
+        for file in consensus_spec_test_files("blob_to_kzg_commitment") {
             let reader = BufReader::new(file);
-            let case: BlobToCommitmentUnchecked = serde_yaml::from_reader(reader).unwrap();
+            let case: BlobToCommitment = serde_yaml::from_reader(reader).unwrap();
 
-            match BlobToCommitmentInput::from_unchecked(case.input) {
-                Ok(input) => {
-                    let comm = case.output.unwrap();
-                    let comm = P1::decompress(comm).unwrap();
-                    let expected_comm = Commitment::from(comm);
-
-                    let comm = input.blob.commitment(&setup);
-
-                    assert_eq!(comm, expected_comm);
-                }
-                Err(_) => {
-                    assert!(case.output.is_none());
-                }
-            }
+            let expected = case.output();
+            let Ok(commitment) = setup.blob_to_commitment(case.input()) else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let expected = expected.unwrap();
+            let mut commitment_bytes = [0u8; Commitment::BYTES];
+            commitment.compress(&mut commitment_bytes).unwrap();
+            assert_eq!(commitment_bytes, expected);
         }
     }
 
@@ -561,18 +405,19 @@ mod tests {
 
         for file in consensus_spec_test_files("verify_kzg_proof") {
             let reader = BufReader::new(file);
-            let case: VerifyKzgProofUnchecked = serde_yaml::from_reader(reader).unwrap();
+            let case: VerifyProof = serde_yaml::from_reader(reader).unwrap();
 
-            match VerifyKzgProofInput::from_unchecked(case.input) {
-                Ok(input) => {
-                    let check =
-                        setup.verify_proof(&input.proof, &input.commitment, &input.z, &input.y);
-                    assert_eq!(check, case.output.unwrap());
-                }
-                Err(_) => {
-                    assert!(case.output.is_none());
-                }
-            }
+            let expected = case.output();
+            let Some((commitment, z, y, proof)) = case.input() else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let Ok(verified) = setup.verify_proof(&proof, &commitment, &z, &y) else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let expected = expected.unwrap();
+            assert_eq!(verified, expected);
         }
     }
 
@@ -584,18 +429,19 @@ mod tests {
 
         for file in consensus_spec_test_files("verify_blob_kzg_proof") {
             let reader = BufReader::new(file);
-            let case: VerifyBlobKzgProofUnchecked = serde_yaml::from_reader(reader).unwrap();
+            let case: VerifyBlobProof = serde_yaml::from_reader(reader).unwrap();
 
-            match VerifyBlobKzgProofInput::from_unchecked(case.input) {
-                Ok(input) => {
-                    let check =
-                        setup.verify_blob_proof(&input.blob, &input.commitment, &input.proof);
-                    assert_eq!(check, case.output.unwrap());
-                }
-                Err(_) => {
-                    assert!(case.output.is_none());
-                }
-            }
+            let expected = case.output();
+            let Some((blob, commitment, proof)) = case.input() else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let Ok(verified) = setup.verify_blob_proof(&blob, &commitment, &proof) else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let expected = expected.unwrap();
+            assert_eq!(verified, expected);
         }
     }
 
@@ -607,18 +453,19 @@ mod tests {
 
         for file in consensus_spec_test_files("verify_blob_kzg_proof_batch") {
             let reader = BufReader::new(file);
-            let case: VerifyBlobKzgProofBatchUnchecked = serde_yaml::from_reader(reader).unwrap();
+            let case: VerifyBlobProofBatch = serde_yaml::from_reader(reader).unwrap();
 
-            match VerifyBlobKzgProofBatchInput::from_unchecked(case.input) {
-                Ok(input) => {
-                    let check =
-                        setup.verify_blob_proof_batch(input.blobs, input.commitments, input.proofs);
-                    assert_eq!(check, case.output.unwrap());
-                }
-                Err(_) => {
-                    assert!(case.output.is_none());
-                }
-            }
+            let expected = case.output();
+            let Some((blobs, commitments, proofs)) = case.input() else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let Ok(verified) = setup.verify_blob_proof_batch(&blobs, &commitments, &proofs) else {
+                assert!(expected.is_none());
+                continue;
+            };
+            let expected = expected.unwrap();
+            assert_eq!(verified, expected);
         }
     }
 }

@@ -1,6 +1,6 @@
 use kateth::{
     blob::Blob,
-    kzg::{Commitment, Proof, Setup},
+    kzg::{Bytes48, Setup},
 };
 
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
@@ -14,17 +14,17 @@ pub fn benchmark(c: &mut Criterion) {
     let max_batch_size = *batch_sizes.last().unwrap();
 
     let mut rng = thread_rng();
-    let blobs: Vec<Blob<4096>> = (0..max_batch_size)
-        .map(|_| Blob::random(&mut rng))
+    let blobs: Vec<Vec<u8>> = (0..max_batch_size)
+        .map(|_| Blob::<4096>::random(&mut rng).to_bytes())
         .collect();
-    let commitments: Vec<Commitment> = blobs
+    let commitments: Vec<Bytes48> = blobs
         .iter()
-        .map(|blob| kzg.blob_to_commitment(blob))
+        .map(|blob| kzg.blob_to_commitment(blob).unwrap().serialize())
         .collect();
-    let proofs: Vec<Proof> = blobs
+    let proofs: Vec<Bytes48> = blobs
         .iter()
         .zip(commitments.iter())
-        .map(|(blob, commitment)| kzg.blob_proof(blob, commitment))
+        .map(|(blob, commitment)| kzg.blob_proof(blob, commitment).unwrap().serialize())
         .collect();
 
     c.bench_function("blob to kzg commitment", |b| {

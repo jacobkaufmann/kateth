@@ -3,6 +3,7 @@ use crate::{
     kzg::{Commitment, Polynomial, Proof, Setup},
 };
 
+#[derive(Clone, Copy, Debug)]
 pub enum Error {
     InvalidFieldElement,
     InvalidLen,
@@ -33,6 +34,15 @@ impl<const N: usize> Blob<N> {
         }
 
         Ok(Self { elements })
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(Self::BYTES);
+        for element in self.elements.iter() {
+            let element = element.to_be_bytes();
+            bytes.extend_from_slice(&element);
+        }
+        bytes
     }
 
     pub(crate) fn commitment<const G2: usize>(&self, setup: &Setup<N, G2>) -> Commitment {

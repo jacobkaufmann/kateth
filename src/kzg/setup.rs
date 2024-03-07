@@ -275,8 +275,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
             .collect();
         let commitments = commitments.map_err(|err| Error::from(BlsError::ECGroup(err)))?;
 
-        let proofs: Result<Vec<Proof>, _> =
-            proofs.as_ref().iter().map(Proof::decompress).collect();
+        let proofs: Result<Vec<Proof>, _> = proofs.as_ref().iter().map(Proof::decompress).collect();
         let proofs = proofs.map_err(|err| Error::from(BlsError::ECGroup(err)))?;
 
         let verified = self.verify_blob_proof_batch_inner(blobs, commitments, proofs);
@@ -288,10 +287,13 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
 mod tests {
     use super::*;
 
-    use crate::{bls::Compress, kzg::spec::{
-        BlobToCommitment, ComputeBlobProof, ComputeProof, VerifyBlobProof, VerifyBlobProofBatch,
-        VerifyProof,
-    }};
+    use crate::{
+        bls::Compress,
+        kzg::spec::{
+            BlobToCommitment, ComputeBlobProof, ComputeProof, VerifyBlobProof,
+            VerifyBlobProofBatch, VerifyProof,
+        },
+    };
 
     use std::{
         fs::{self, File},

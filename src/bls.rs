@@ -1,8 +1,8 @@
-use core::slice;
-use std::{
+use core::{
     cmp,
     mem::MaybeUninit,
     ops::{Add, Div, Mul, Neg, Shl, ShlAssign, Shr, ShrAssign, Sub},
+    slice,
 };
 
 use blst::{

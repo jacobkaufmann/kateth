@@ -7,23 +7,23 @@ use std::{
 use super::{Bytes32, Bytes48, Commitment, Error, Polynomial, Proof};
 use crate::{
     blob::{Blob, Error as BlobError},
-    bls::{self, Decompress, ECGroupError, Error as BlsError, Fr, P1, P2},
+    bls::{self, Decompress, Error as BlsError, Fr, P1, P2},
+    bytes::Bytes,
     math,
 };
 
-use alloy_primitives::{hex, Bytes, FixedBytes};
+use serde::Deserialize;
 
 #[derive(Debug)]
 pub enum LoadSetupError {
     Bls(BlsError),
     Io(io::Error),
-    Hex(hex::FromHexError),
     Serde(serde_json::Error),
     InvalidLenG1Lagrange,
     InvalidLenG2Monomial,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Deserialize)]
 struct SetupUnchecked {
     g1_lagrange: Vec<Bytes>,
     g2_monomial: Vec<Bytes>,
@@ -52,13 +52,6 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
 
         let mut g1_lagrange: Box<[P1; G1]> = Box::new([P1::default(); G1]);
         for (i, point) in setup.g1_lagrange.iter().enumerate() {
-            if point.len() != 48 {
-                return Err(LoadSetupError::Bls(BlsError::from(
-                    ECGroupError::InvalidEncoding,
-                )));
-            }
-            // TODO: skip unnecessary allocation
-            let point = FixedBytes::<48>::from_slice(point);
             let point =
                 P1::decompress(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
             g1_lagrange[i] = point;
@@ -67,13 +60,6 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
 
         let mut g2_monomial: Box<[P2; G2]> = Box::new([P2::default(); G2]);
         for (i, point) in setup.g2_monomial.iter().enumerate() {
-            if point.len() != 96 {
-                return Err(LoadSetupError::Bls(BlsError::from(
-                    ECGroupError::InvalidEncoding,
-                )));
-            }
-            // TODO: skip unnecessary allocation
-            let point = FixedBytes::<96>::from_slice(point);
             let point =
                 P2::decompress(point).map_err(|err| LoadSetupError::Bls(BlsError::from(err)))?;
             g2_monomial[i] = point;
@@ -287,12 +273,11 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
 mod tests {
     use super::*;
 
-    use crate::{
-        bls::Compress,
-        kzg::spec::{
-            BlobToCommitment, ComputeBlobProof, ComputeProof, VerifyBlobProof,
-            VerifyBlobProofBatch, VerifyProof,
-        },
+    use crate::bls::Compress;
+
+    use crate::kzg::spec::{
+        BlobToCommitment, ComputeBlobProof, ComputeProof, VerifyBlobProof, VerifyBlobProofBatch,
+        VerifyProof,
     };
 
     use std::{

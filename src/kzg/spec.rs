@@ -1,18 +1,20 @@
-use alloy_primitives::{Bytes, FixedBytes};
 use serde::Deserialize;
 
-use crate::bls::{Fr, P1};
+use crate::{
+    bls::{Fr, P1},
+    bytes::Bytes,
+};
 
 use super::{Bytes32, Bytes48};
 
 fn bytes32_from_bytes(bytes: &Bytes) -> Option<Bytes32> {
-    let bytes = FixedBytes::<{ Fr::BYTES }>::try_from(bytes.as_ref()).ok();
+    let bytes: Option<[u8; Fr::BYTES]> = TryFrom::try_from(bytes.as_ref()).ok();
     bytes.map(Into::<Bytes32>::into)
 }
 
 fn bytes48_from_bytes(bytes: &Bytes) -> Option<Bytes48> {
-    let bytes = FixedBytes::<{ P1::BYTES }>::try_from(bytes.as_ref()).ok()?;
-    Some(bytes.into())
+    let bytes: Option<[u8; P1::BYTES]> = TryFrom::try_from(bytes.as_ref()).ok();
+    bytes.map(Into::<Bytes48>::into)
 }
 
 #[derive(Deserialize)]

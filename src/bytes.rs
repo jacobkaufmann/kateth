@@ -14,7 +14,7 @@ pub struct BytesVisitor;
 impl<'de> Visitor<'de> for BytesVisitor {
     type Value = Vec<u8>;
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
         formatter.write_str(
             "a variable-length byte array represented by a raw byte array or a hex-encoded string",
         )

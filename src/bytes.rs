@@ -7,7 +7,7 @@ impl AsRef<[u8]> for Bytes {
     }
 }
 
-#[cfg(any(test, feature = "serde"))]
+#[cfg(feature = "serde")]
 pub mod serde {
     use super::*;
 

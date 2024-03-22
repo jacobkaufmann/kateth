@@ -11,7 +11,10 @@ impl AsRef<[u8]> for Bytes {
 pub mod serde {
     use super::*;
 
-    use ::serde::{de::{Error, Visitor}, Deserialize, Deserializer};
+    use ::serde::{
+        de::{Error, Visitor},
+        Deserialize, Deserializer,
+    };
 
     struct BytesVisitor;
 

@@ -77,14 +77,14 @@ impl<const N: usize> Blob<N> {
 
     pub(crate) fn challenge(&self, commitment: &Commitment) -> Fr {
         const DOMAIN: &[u8; 16] = b"FSBLOBVERIFY_V1_";
-        let degree = (N as u128).to_be_bytes();
+        let degree: [u8; 16] = (N as u128).to_be_bytes();
 
         let mut comm = [0u8; Commitment::COMPRESSED];
         commitment
             .compress(comm.as_mut_slice())
             .expect("sufficient buffer len");
 
-        let mut data = Vec::with_capacity(8 + 16 + Commitment::BYTES + Self::BYTES);
+        let mut data = Vec::with_capacity(16 + 16 + Self::BYTES + Commitment::BYTES);
         data.extend_from_slice(DOMAIN);
         data.extend_from_slice(&degree);
         for element in self.elements.iter() {

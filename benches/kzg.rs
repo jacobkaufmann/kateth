@@ -9,7 +9,7 @@ use rand::thread_rng;
 
 pub fn benchmark(c: &mut Criterion) {
     let path = format!("{}/trusted_setup_4096.json", env!("CARGO_MANIFEST_DIR"));
-    let kzg = Setup::<4096, 65>::load(path).unwrap();
+    let kzg = Setup::<4096, 65>::load_json(path).unwrap();
 
     let batch_sizes = [1usize, 2, 4, 8, 16, 32, 64, 128];
     let max_batch_size = *batch_sizes.last().unwrap();

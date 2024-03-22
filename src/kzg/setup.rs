@@ -1,3 +1,4 @@
+#[cfg(feature = "serde")]
 use std::{
     fs::File,
     io::{self, BufReader},
@@ -8,12 +9,15 @@ use super::{Bytes32, Bytes48, Commitment, Error, Polynomial, Proof};
 use crate::{
     blob::{Blob, Error as BlobError},
     bls::{self, Decompress, Error as BlsError, Fr, P1, P2},
-    bytes::Bytes,
-    math,
 };
 
+#[cfg(feature = "serde")]
+use crate::{bytes::Bytes, math};
+
+#[cfg(feature = "serde")]
 use serde::Deserialize;
 
+#[cfg(feature = "serde")]
 #[derive(Debug)]
 pub enum LoadSetupError {
     Bls(BlsError),
@@ -23,6 +27,7 @@ pub enum LoadSetupError {
     InvalidLenG2Monomial,
 }
 
+#[cfg(feature = "serde")]
 #[derive(Deserialize)]
 struct SetupUnchecked {
     g1_lagrange: Vec<Bytes>,
@@ -37,7 +42,8 @@ pub struct Setup<const G1: usize, const G2: usize> {
 }
 
 impl<const G1: usize, const G2: usize> Setup<G1, G2> {
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, LoadSetupError> {
+    #[cfg(feature = "serde")]
+    pub fn load_json(path: impl AsRef<Path>) -> Result<Self, LoadSetupError> {
         let file = File::open(path).map_err(LoadSetupError::Io)?;
         let reader = BufReader::new(file);
         let setup: SetupUnchecked =
@@ -269,7 +275,7 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "serde"))]
 mod tests {
     use super::*;
 
@@ -293,7 +299,7 @@ mod tests {
     fn setup() -> Setup<FIELD_ELEMENTS_PER_BLOB, SETUP_G2_LEN> {
         let path = format!("{}/trusted_setup_4096.json", env!("CARGO_MANIFEST_DIR"));
         let path = PathBuf::from(path);
-        Setup::load(path).unwrap()
+        Setup::load_json(path).unwrap()
     }
 
     fn consensus_spec_test_files(dir: impl AsRef<str>) -> impl Iterator<Item = File> {

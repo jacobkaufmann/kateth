@@ -3,7 +3,7 @@ use crate::{blob, bls};
 mod poly;
 mod setup;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "serde"))]
 mod spec;
 
 pub type Proof = bls::P1;

@@ -6,16 +6,16 @@ use core::{
 };
 
 use blst::{
-    blst_bendian_from_scalar, blst_final_exp, blst_fp, blst_fp12, blst_fp12_is_one, blst_fp12_mul,
-    blst_fr, blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar,
-    blst_fr_from_uint64, blst_fr_lshift, blst_fr_mul, blst_fr_rshift, blst_fr_sub,
-    blst_lendian_from_scalar, blst_miller_loop, blst_p1, blst_p1_add, blst_p1_affine,
-    blst_p1_affine_in_g1, blst_p1_cneg, blst_p1_compress, blst_p1_from_affine, blst_p1_mult,
-    blst_p1_to_affine, blst_p1_uncompress, blst_p2, blst_p2_add, blst_p2_affine,
-    blst_p2_affine_in_g2, blst_p2_compress, blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine,
-    blst_p2_uncompress, blst_scalar, blst_scalar_fr_check, blst_scalar_from_bendian,
-    blst_scalar_from_fr, blst_sha256, blst_uint64_from_fr, p1_affines, BLS12_381_G2,
-    BLS12_381_NEG_G1, BLS12_381_NEG_G2, BLST_ERROR,
+    blst_bendian_from_scalar, blst_final_exp, blst_fp12, blst_fp12_is_one, blst_fp12_mul, blst_fr,
+    blst_fr_add, blst_fr_cneg, blst_fr_eucl_inverse, blst_fr_from_scalar, blst_fr_from_uint64,
+    blst_fr_lshift, blst_fr_mul, blst_fr_rshift, blst_fr_sub, blst_lendian_from_scalar,
+    blst_miller_loop, blst_p1, blst_p1_add, blst_p1_affine, blst_p1_affine_in_g1, blst_p1_cneg,
+    blst_p1_compress, blst_p1_from_affine, blst_p1_mult, blst_p1_to_affine, blst_p1_uncompress,
+    blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_cneg, blst_p2_compress,
+    blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_p2_uncompress, blst_scalar,
+    blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr, blst_sha256,
+    blst_uint64_from_fr, p1_affines, BLS12_381_G1, BLS12_381_G2, BLS12_381_NEG_G1,
+    BLS12_381_NEG_G2, BLST_ERROR,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -366,25 +366,9 @@ pub struct P1 {
 }
 
 impl P1 {
-    pub const INF: Self = Self {
-        element: blst_p1 {
-            x: blst_fp {
-                l: [0, 0, 0, 0, 0, 0],
-            },
-            y: blst_fp {
-                l: [0, 0, 0, 0, 0, 0],
-            },
-            z: blst_fp {
-                l: [0, 0, 0, 0, 0, 0],
-            },
-        },
-    };
-    pub const BITS: usize = 384;
-    pub const BYTES: usize = Self::BITS / 8;
-
     pub fn lincomb(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
         let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
-        let mut lincomb = Self::INF;
+        let mut lincomb = Self::default();
         for i in 0..n {
             lincomb = lincomb + (points.as_ref()[i] * scalars.as_ref()[i]);
         }
@@ -411,257 +395,178 @@ impl P1 {
 
         Self { element: lincomb }
     }
-
-    // TODO: make available as `const`
-    pub fn neg_generator() -> Self {
-        let mut out = MaybeUninit::<blst_p1>::uninit();
-        unsafe {
-            blst_p1_from_affine(out.as_mut_ptr(), &BLS12_381_NEG_G1);
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl AsRef<blst_p1> for P1 {
-    fn as_ref(&self) -> &blst_p1 {
-        &self.element
-    }
-}
-
-impl Add for P1 {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        let mut out = MaybeUninit::<blst_p1>::uninit();
-        unsafe {
-            blst_p1_add(out.as_mut_ptr(), &self.element, &rhs.element);
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl Add<&Self> for P1 {
-    type Output = Self;
-
-    fn add(self, rhs: &Self) -> Self::Output {
-        let mut out = MaybeUninit::<blst_p1>::uninit();
-        unsafe {
-            blst_p1_add(out.as_mut_ptr(), &self.element, &rhs.element);
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl Mul<&Fr> for &P1 {
-    type Output = P1;
-
-    fn mul(self, rhs: &Fr) -> Self::Output {
-        let mut scalar = blst_scalar::default();
-        let mut out = MaybeUninit::<blst_p1>::uninit();
-        unsafe {
-            blst_scalar_from_fr(&mut scalar, &rhs.element);
-            blst_p1_mult(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
-            P1 {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl Mul<&Fr> for P1 {
-    type Output = Self;
-
-    #[allow(clippy::op_ref)]
-    fn mul(self, rhs: &Fr) -> Self::Output {
-        &self * rhs
-    }
-}
-
-impl Mul<Fr> for P1 {
-    type Output = Self;
-
-    fn mul(self, rhs: Fr) -> Self::Output {
-        self * &rhs
-    }
-}
-
-impl Neg for P1 {
-    type Output = Self;
-
-    fn neg(mut self) -> Self::Output {
-        unsafe {
-            blst_p1_cneg(&mut self.element, true);
-        }
-        self
-    }
-}
-
-impl Compress for P1 {
-    const COMPRESSED: usize = Self::BYTES;
-
-    fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<(), &'static str> {
-        if buf.as_mut().len() < Self::COMPRESSED {
-            return Err("insufficient buffer length");
-        }
-        unsafe {
-            blst_p1_compress(buf.as_mut().as_mut_ptr(), &self.element);
-        }
-        Ok(())
-    }
-}
-
-impl Decompress for P1 {
-    type Error = ECGroupError;
-
-    fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, Self::Error> {
-        let mut affine = MaybeUninit::<blst_p1_affine>::uninit();
-        let mut out = MaybeUninit::<blst_p1>::uninit();
-        unsafe {
-            // NOTE: uncompress performs a curve check but not a subgroup check. if that changes,
-            // then we should encounter `unreachable` for `BLST_POINT_NOT_IN_GROUP` in tests.
-            match blst_p1_uncompress(affine.as_mut_ptr(), compressed.as_ref().as_ptr()) {
-                BLST_ERROR::BLST_SUCCESS => {}
-                BLST_ERROR::BLST_BAD_ENCODING => return Err(ECGroupError::InvalidEncoding),
-                BLST_ERROR::BLST_POINT_NOT_ON_CURVE => return Err(ECGroupError::NotOnCurve),
-                other => unreachable!("{other:?}"),
-            }
-            if !blst_p1_affine_in_g1(affine.as_ptr()) {
-                return Err(ECGroupError::NotInGroup);
-            }
-
-            blst_p1_from_affine(out.as_mut_ptr(), affine.as_ptr());
-            Ok(Self {
-                element: out.assume_init(),
-            })
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct P2 {
     element: blst_p2,
 }
-
-impl P2 {
-    pub const BITS: usize = 768;
-    pub const BYTES: usize = Self::BITS / 8;
-
-    // TODO: make available as `const`
-    pub fn generator() -> Self {
-        let mut out = MaybeUninit::<blst_p2>::uninit();
-        unsafe {
-            blst_p2_from_affine(out.as_mut_ptr(), &BLS12_381_G2);
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-
-    // TODO: make available as `const`
-    pub fn neg_generator() -> Self {
-        let mut out = MaybeUninit::<blst_p2>::uninit();
-        unsafe {
-            blst_p2_from_affine(out.as_mut_ptr(), &BLS12_381_NEG_G2);
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl Add for P2 {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        let mut out = MaybeUninit::<blst_p2>::uninit();
-        unsafe {
-            blst_p2_add(out.as_mut_ptr(), &self.element, &rhs.element);
-            Self {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl Mul<&Fr> for &P2 {
-    type Output = P2;
-
-    fn mul(self, rhs: &Fr) -> Self::Output {
-        let mut scalar = blst_scalar::default();
-        let mut out = MaybeUninit::<blst_p2>::uninit();
-        unsafe {
-            blst_scalar_from_fr(&mut scalar, &rhs.element);
-            blst_p2_mult(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
-            P2 {
-                element: out.assume_init(),
-            }
-        }
-    }
-}
-
-impl Mul<&Fr> for P2 {
-    type Output = Self;
-
-    #[allow(clippy::op_ref)]
-    fn mul(self, rhs: &Fr) -> Self::Output {
-        &self * rhs
-    }
-}
-
-impl Mul<Fr> for P2 {
-    type Output = Self;
-
-    fn mul(self, rhs: Fr) -> Self::Output {
-        self * &rhs
-    }
-}
-
-impl Compress for P2 {
-    const COMPRESSED: usize = Self::BYTES;
-
-    fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<(), &'static str> {
-        if buf.as_mut().len() < Self::COMPRESSED {
-            return Err("insufficient buffer length");
-        }
-        unsafe {
-            blst_p2_compress(buf.as_mut().as_mut_ptr(), &self.element);
-        }
-        Ok(())
-    }
-}
-
-impl Decompress for P2 {
-    type Error = ECGroupError;
-
-    fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, Self::Error> {
-        let mut affine = MaybeUninit::<blst_p2_affine>::uninit();
-        let mut out = MaybeUninit::<blst_p2>::uninit();
-        unsafe {
-            // NOTE: uncompress performs a curve check but not a subgroup check. if that changes,
-            // then we should encounter `unreachable` for `BLST_POINT_NOT_IN_GROUP` in tests.
-            match blst_p2_uncompress(affine.as_mut_ptr(), compressed.as_ref().as_ptr()) {
-                BLST_ERROR::BLST_SUCCESS => {}
-                BLST_ERROR::BLST_BAD_ENCODING => return Err(ECGroupError::InvalidEncoding),
-                BLST_ERROR::BLST_POINT_NOT_ON_CURVE => return Err(ECGroupError::NotOnCurve),
-                other => unreachable!("{other:?}"),
-            }
-            if !blst_p2_affine_in_g2(affine.as_ptr()) {
-                return Err(ECGroupError::NotInGroup);
+macro_rules! impl_group {
+    (
+        $p:ident,
+        $gelt:ty,
+        $affine:ty,
+        $from_affine:ident,
+        $to_affine:ident,
+        $gen:expr,
+        $neg_gen:expr,
+        $add:ident,
+        $neg:ident,
+        $mul:ident,
+        $affine_in_group:ident,
+        $compress:ident,
+        $uncompress:ident,
+        $COMPRESSED:expr
+    ) => {
+        impl $p {
+            // TODO: make available as `const`
+            pub fn generator() -> Self {
+                let mut out = MaybeUninit::<$gelt>::uninit();
+                unsafe {
+                    $from_affine(out.as_mut_ptr(), &$gen);
+                    Self::from(out.assume_init())
+                }
             }
 
-            blst_p2_from_affine(out.as_mut_ptr(), affine.as_ptr());
-            Ok(Self {
-                element: out.assume_init(),
-            })
+            // TODO: make available as `const`
+            pub fn neg_generator() -> Self {
+                let mut out = MaybeUninit::<$gelt>::uninit();
+                unsafe {
+                    $from_affine(out.as_mut_ptr(), &$neg_gen);
+                    Self::from(out.assume_init())
+                }
+            }
         }
-    }
+
+        impl From<$gelt> for $p {
+            fn from(element: $gelt) -> Self {
+                Self { element }
+            }
+        }
+
+        impl AsRef<$gelt> for $p {
+            fn as_ref(&self) -> &$gelt {
+                &self.element
+            }
+        }
+
+        impl Add for $p {
+            type Output = Self;
+
+            fn add(self, rhs: Self) -> Self::Output {
+                let mut out = MaybeUninit::<$gelt>::uninit();
+                unsafe {
+                    $add(out.as_mut_ptr(), &self.element, &rhs.element);
+                    Self {
+                        element: out.assume_init(),
+                    }
+                }
+            }
+        }
+
+        impl Neg for $p {
+            type Output = Self;
+
+            fn neg(mut self) -> Self::Output {
+                unsafe {
+                    $neg(&mut self.element, true);
+                }
+                self
+            }
+        }
+
+        impl Mul<Fr> for $p {
+            type Output = Self;
+
+            fn mul(self, rhs: Fr) -> Self::Output {
+                let mut scalar = blst_scalar::default();
+                let mut out = MaybeUninit::<$gelt>::uninit();
+                unsafe {
+                    blst_scalar_from_fr(&mut scalar, &rhs.element);
+                    $mul(out.as_mut_ptr(), &self.element, scalar.b.as_ptr(), 255);
+                    $p::from(out.assume_init())
+                }
+            }
+        }
+
+        impl Compress for $p {
+            const COMPRESSED: usize = $COMPRESSED;
+
+            fn compress(&self, mut buf: impl AsMut<[u8]>) -> Result<(), &'static str> {
+                if buf.as_mut().len() < Self::COMPRESSED {
+                    return Err("insufficient buffer length");
+                }
+                unsafe {
+                    $compress(buf.as_mut().as_mut_ptr(), &self.element);
+                }
+                Ok(())
+            }
+        }
+
+        impl Decompress for $p {
+            type Error = ECGroupError;
+
+            fn decompress(compressed: impl AsRef<[u8]>) -> Result<Self, Self::Error> {
+                let mut affine = MaybeUninit::<$affine>::uninit();
+                let mut out = MaybeUninit::<$gelt>::uninit();
+                unsafe {
+                    // NOTE: uncompress performs a curve check but not a subgroup check. if that changes,
+                    // then we should encounter `unreachable` for `BLST_POINT_NOT_IN_GROUP` in tests.
+                    match $uncompress(affine.as_mut_ptr(), compressed.as_ref().as_ptr()) {
+                        BLST_ERROR::BLST_SUCCESS => {}
+                        BLST_ERROR::BLST_BAD_ENCODING => return Err(ECGroupError::InvalidEncoding),
+                        BLST_ERROR::BLST_POINT_NOT_ON_CURVE => {
+                            return Err(ECGroupError::NotOnCurve)
+                        }
+                        other => unreachable!("{other:?}"),
+                    }
+                    if !$affine_in_group(affine.as_ptr()) {
+                        return Err(ECGroupError::NotInGroup);
+                    }
+
+                    $from_affine(out.as_mut_ptr(), affine.as_ptr());
+                    Ok(Self {
+                        element: out.assume_init(),
+                    })
+                }
+            }
+        }
+    };
 }
+
+impl_group!(
+    P1,
+    blst_p1,
+    blst_p1_affine,
+    blst_p1_from_affine,
+    blst_p1_to_affine,
+    BLS12_381_G1,
+    BLS12_381_NEG_G1,
+    blst_p1_add,
+    blst_p1_cneg,
+    blst_p1_mult,
+    blst_p1_affine_in_g1,
+    blst_p1_compress,
+    blst_p1_uncompress,
+    48
+);
+
+impl_group!(
+    P2,
+    blst_p2,
+    blst_p2_affine,
+    blst_p2_from_affine,
+    blst_p2_to_affine,
+    BLS12_381_G2,
+    BLS12_381_NEG_G2,
+    blst_p2_add,
+    blst_p2_cneg,
+    blst_p2_mult,
+    blst_p2_affine_in_g2,
+    blst_p2_compress,
+    blst_p2_uncompress,
+    96
+);
 
 pub fn verify_pairings((a1, a2): (P1, P2), (b1, b2): (P1, P2)) -> bool {
     let mut a1_neg_affine = MaybeUninit::<blst_p1_affine>::uninit();
@@ -688,12 +593,6 @@ pub fn verify_pairings((a1, a2): (P1, P2), (b1, b2): (P1, P2)) -> bool {
         blst_fp12_mul(prod.as_mut_ptr(), e1.as_ptr(), e2.as_ptr());
         blst_final_exp(exp.as_mut_ptr(), prod.as_ptr());
         blst_fp12_is_one(exp.as_ptr())
-    }
-}
-
-impl AsRef<blst_p2> for P2 {
-    fn as_ref(&self) -> &blst_p2 {
-        &self.element
     }
 }
 

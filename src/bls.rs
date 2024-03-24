@@ -14,7 +14,7 @@ use blst::{
     blst_p2, blst_p2_add, blst_p2_affine, blst_p2_affine_in_g2, blst_p2_cneg, blst_p2_compress,
     blst_p2_from_affine, blst_p2_mult, blst_p2_to_affine, blst_p2_uncompress, blst_scalar,
     blst_scalar_fr_check, blst_scalar_from_bendian, blst_scalar_from_fr, blst_sha256,
-    blst_uint64_from_fr, p1_affines, BLS12_381_G1, BLS12_381_G2, BLS12_381_NEG_G1,
+    blst_uint64_from_fr, p1_affines, p2_affines, BLS12_381_G1, BLS12_381_G2, BLS12_381_NEG_G1,
     BLS12_381_NEG_G2, BLST_ERROR,
 };
 
@@ -359,48 +359,6 @@ impl Shr<usize> for Fr {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-#[repr(transparent)]
-pub struct P1 {
-    element: blst_p1,
-}
-
-impl P1 {
-    pub fn lincomb(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
-        let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
-        let mut lincomb = Self::default();
-        for i in 0..n {
-            lincomb = lincomb + (points.as_ref()[i] * scalars.as_ref()[i]);
-        }
-        lincomb
-    }
-
-    pub fn lincomb_pippenger(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
-        let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
-
-        let points = unsafe {
-            // NOTE: we can perform the cast from `*const P1` to `*const blst_p1` given
-            // `repr(transparent)` for `P1`
-            slice::from_raw_parts(points.as_ref().as_ptr() as *const blst_p1, n)
-        };
-        let points = p1_affines::from(points);
-
-        let scalar_iter = scalars.as_ref().iter().take(n);
-        let mut scalars = Vec::with_capacity(n * Fr::BYTES);
-        for scalar in scalar_iter.map(|scalar| scalar.to_le_bytes()) {
-            scalars.extend_from_slice(scalar.as_slice());
-        }
-
-        let lincomb = points.mult(&scalars, 255);
-
-        Self { element: lincomb }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct P2 {
-    element: blst_p2,
-}
 macro_rules! impl_group {
     (
         $p:ident,
@@ -408,6 +366,7 @@ macro_rules! impl_group {
         $affine:ty,
         $from_affine:ident,
         $to_affine:ident,
+        $affines:ident,
         $gen:expr,
         $neg_gen:expr,
         $add:ident,
@@ -418,6 +377,12 @@ macro_rules! impl_group {
         $uncompress:ident,
         $COMPRESSED:expr
     ) => {
+        #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+        #[repr(transparent)]
+        pub struct $p {
+            element: $gelt,
+        }
+
         impl $p {
             // TODO: make available as `const`
             pub fn generator() -> Self {
@@ -435,6 +400,40 @@ macro_rules! impl_group {
                     $from_affine(out.as_mut_ptr(), &$neg_gen);
                     Self::from(out.assume_init())
                 }
+            }
+
+            #[allow(dead_code)]
+            pub fn lincomb(points: impl AsRef<[Self]>, scalars: impl AsRef<[Fr]>) -> Self {
+                let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
+                let mut lincomb = Self::default();
+                for i in 0..n {
+                    lincomb = lincomb + (points.as_ref()[i] * scalars.as_ref()[i]);
+                }
+                lincomb
+            }
+
+            #[allow(dead_code)]
+            pub fn lincomb_pippenger(
+                points: impl AsRef<[Self]>,
+                scalars: impl AsRef<[Fr]>,
+            ) -> Self {
+                let n = cmp::min(points.as_ref().len(), scalars.as_ref().len());
+
+                let points = unsafe {
+                    // NOTE: we can perform the cast given `repr(transparent)` for the struct.
+                    slice::from_raw_parts(points.as_ref().as_ptr() as *const $gelt, n)
+                };
+                let points = $affines::from(points);
+
+                let scalar_iter = scalars.as_ref().iter().take(n);
+                let mut scalars = Vec::with_capacity(n * Fr::BYTES);
+                for scalar in scalar_iter.map(|scalar| scalar.to_le_bytes()) {
+                    scalars.extend_from_slice(scalar.as_slice());
+                }
+
+                let lincomb = points.mult(&scalars, 255);
+
+                Self { element: lincomb }
             }
         }
 
@@ -540,6 +539,7 @@ impl_group!(
     blst_p1_affine,
     blst_p1_from_affine,
     blst_p1_to_affine,
+    p1_affines,
     BLS12_381_G1,
     BLS12_381_NEG_G1,
     blst_p1_add,
@@ -557,6 +557,7 @@ impl_group!(
     blst_p2_affine,
     blst_p2_from_affine,
     blst_p2_to_affine,
+    p2_affines,
     BLS12_381_G2,
     BLS12_381_NEG_G2,
     blst_p2_add,

@@ -88,8 +88,8 @@ impl<const G1: usize, const G2: usize> Setup<G1, G2> {
         point: &Fr,
         eval: &Fr,
     ) -> bool {
-        let pairing1 = (*proof, self.g2_monomial[1] + (P2::neg_generator() * point));
-        let pairing2 = (*commitment + (P1::neg_generator() * eval), P2::generator());
+        let pairing1 = (*proof, self.g2_monomial[1] + (P2::neg_generator() * *point));
+        let pairing2 = (*commitment + (P1::neg_generator() * *eval), P2::generator());
         bls::verify_pairings(pairing1, pairing2)
     }
 

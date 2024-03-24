@@ -84,7 +84,7 @@ impl<const N: usize> Blob<N> {
             .compress(comm.as_mut_slice())
             .expect("sufficient buffer len");
 
-        let mut data = Vec::with_capacity(16 + 16 + Self::BYTES + Commitment::BYTES);
+        let mut data = Vec::with_capacity(16 + 16 + Self::BYTES + Commitment::COMPRESSED);
         data.extend_from_slice(DOMAIN);
         data.extend_from_slice(&degree);
         for element in self.elements.iter() {

@@ -1,5 +1,6 @@
 mod bls;
 mod bytes;
+mod ffi;
 mod math;
 
 pub use bls::{Compress, Decompress};

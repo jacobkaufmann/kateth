@@ -76,6 +76,7 @@ pub trait Decompress: Sized {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[repr(transparent)]
 pub struct Fr {
     element: blst_fr,
 }

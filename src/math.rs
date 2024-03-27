@@ -31,7 +31,7 @@ pub fn roots_of_unity<const ORDER: usize>() -> [Fr; ORDER] {
 /// # Panics
 ///
 /// This function will panic if the length of `elements` is not a power of 2.
-pub(crate) fn bit_reversal_permutation<T>(elements: impl AsRef<[T]>) -> Vec<T>
+pub fn bit_reversal_permutation<T>(elements: impl AsRef<[T]>) -> Vec<T>
 where
     T: Copy,
 {
@@ -50,7 +50,7 @@ where
 /// This function will panic if the length of `elements` is not equal to `N`.
 ///
 /// This function will panic if the length of `elements` is not a power of 2.
-pub(crate) fn bit_reversal_permutation_boxed_array<T, const N: usize>(
+pub fn bit_reversal_permutation_boxed_array<T, const N: usize>(
     elements: impl AsRef<[T]>,
 ) -> Box<[T; N]>
 where

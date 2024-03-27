@@ -16,11 +16,13 @@ impl From<FiniteFieldError> for Error {
 }
 
 #[derive(Clone, Debug)]
+#[repr(C)]
 pub struct Blob<const N: usize> {
     pub(crate) elements: Box<[Fr; N]>,
 }
 
 impl<const N: usize> Blob<N> {
+    /// cbindgen:no-export
     pub const BYTES: usize = Fr::BYTES * N;
 
     pub fn from_slice(bytes: impl AsRef<[u8]>) -> Result<Self, Error> {
